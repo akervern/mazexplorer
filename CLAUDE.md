@@ -1,0 +1,146 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Commands
+
+```bash
+npm run dev        # Vite dev server, http://localhost:5173
+npm test           # generation invariants (tsx src/world/worldGen.test.ts)
+npm run typecheck  # tsc --noEmit
+npm run build      # typecheck + vite build
+```
+
+`npm test` is a plain tsx script, not a test runner — there is no per-test filter.
+To narrow it, edit the `SIZES` / `SEEDS` arrays at the top of
+`src/world/worldGen.test.ts` (18 worlds = 3 sizes × 6 seeds by default).
+
+Product text (signposts, HUD, menus, item names, mechanism hints) is in French.
+Code, comments and identifiers are in English.
+
+## Determinism is the core invariant
+
+Seed + config ⇒ byte-identical world. `Math.random()` must never appear in
+anything under `src/world/` or `src/core/` (`randomSeedString()` in
+`core/rng.ts` is the one deliberate exception — it only picks a seed for the
+menu, it never generates).
+
+Every generation step draws from `rng.fork('tag')`, an independent stream
+derived from seed + tag. **Consequence: adding a generation step must use a new
+`fork()`, never an extra draw on an existing stream** — reusing a stream shifts
+every later draw and changes unrelated parts of the world for all existing
+seeds. Registry iteration order is likewise seed-relevant (`MECHANISM_IDS`).
+
+## World model and coordinate spaces
+
+Three spaces, converted only through `worldGen.ts` helpers:
+
+1. **Maze cell** — `cols × rows` logical cells (`maze.ts`).
+2. **Zone grid tile** — cells expanded to `(cols*2+1) × (rows*2+1)`; odd indices
+   are cells, even ones walls. `Tile {x, y}` is always this space. Zones carry
+   `originX`/`originZ` so all zone tiles share one global grid.
+3. **World / voxel units** — grid × `TILE`.
+
+`TILE` (`core/types.ts`, currently 3) is the single knob for corridor width.
+Everything derived from it — interaction ranges, fog, camera planes, shadow
+frustum, minimap span — scales off it, so never hardcode a distance in world
+units; write it as a multiple of `TILE`. Convert with `tileToWorld()` (tile
+centre), `tileOrigin()` (low corner) and `linkToWorld()`; never multiply by
+`TILE` by hand at a call site.
+
+A voxel at index `i` spans `[i, i+1)`. Rendering compensates by placing box
+instances at `+0.5` (`voxelWorld.ts`), and collision computes its high bound as
+`ceil(c+R)-1`, not `floor(c+R)` — using floor widens the AABB by a voxel on one
+side and makes walls asymmetrically solid. Player movement is integrated per
+axis in sub-steps smaller than the player radius; a single long step tunnels
+through walls on a slow frame.
+
+Changing `TILE` invalidates saved positions (stored in world units). `save.ts`
+bakes `TILE` into the storage key (`mazexplorer:save:v2:t${TILE}`) so old saves
+are dropped rather than spawning the camera inside a wall.
+
+## Generation pipeline (`world/worldGen.ts`)
+
+`generateWorld(config)`:
+biome order → zones (biomes interleaved with corridors, laid side by side on X
+with a gutter) → `linkZones()` carves each exit east, each next entry west, and
+fills the gutter as an **L** (a straight interpolation leaves diagonal,
+non-walkable gaps) → `planProgression()` → signposts → teleporters.
+
+`planProgression()` assigns exactly one mechanism per biome zone, drawn from a
+pool chosen by the zone's role:
+
+- most zones: `key_door`, `pedestal_offering`, `break_obstacle`, `activate_bridge`
+- 1–2 "deep exploration" zones: `fragment_set`, `light_threshold`
+- one late transition (needs ≥ 4 biomes): `cross_biome_tool`, whose item is
+  planted in an *earlier* biome — the intended backtrack via teleporter
+
+Loot for a gate is placed only in `tilesBeforeGate()`. This is the subtle
+constraint: without it a key can spawn behind its own door.
+
+## Adding an unlock mechanism
+
+One entry in `src/world/unlockMechanisms.ts` plus its id in `MechanismTypeId`
+(`core/types.ts`). Nothing else changes — maze generation, renderer, HUD,
+compass and signposts all go through the `MechanismType` interface, and
+signposts read `requires` to write their own hint.
+
+- `plan(ctx)` runs at generation: reserve items via `ctx.pickItem(role)` /
+  `ctx.pickCrossBiomeItem()`, declare a `target.type` (`door | pedestal |
+  rubble | gap | gate`). Return `null` to decline — the generator falls back to
+  `key_door`.
+- `onCheck(inv, inst)` / `onUnlock(world, inst)` run at play time. `onUnlock`
+  may only call `WorldMutator.clearBlocking()` / `buildBridge()`.
+- Then allow the id in the appropriate pool in `planProgression()`.
+
+Then run `npm test` — the invariants below catch a mechanism that makes a world
+unwinnable.
+
+## What `npm test` guarantees
+
+Per world: one connected walkable space; each zone's exit reachable from its
+entry; **every gate is a true chokepoint** (walling it disconnects the exit, so
+progression cannot be routed around); the exit is gated; and the run is
+**completable** — a headless simulation collects reachable pickups and fires
+reachable mechanisms until it wins. Plus determinism (same seed ⇒ identical
+world, different seeds differ).
+
+These checks are pure logic and prove nothing about what is on screen. See
+Verification below.
+
+## Verification
+
+`npm test` and `npm run typecheck` passing does **not** mean the change works:
+they never render a frame. For anything touching rendering, collision, camera,
+minimap or UI, run `npm run dev` and look at it before reporting done.
+
+## Layer boundaries worth keeping
+
+- `world/` and `core/` are DOM-free and Three.js-free — that is what lets the
+  test suite run headless under tsx. Keep Three.js in `render/`, `player/`,
+  `ui/` and `game.ts`.
+- Input is abstracted behind `InputSource` (`player/input.ts`):
+  `getMoveVector()` / `getLookDelta()` / `drainActions()`. Pointer Lock is one
+  source, not a dependency — adding a touch joystick must not touch the
+  controller or `game.ts`.
+- Voxels render as one `InstancedMesh` per (texture, tint) pair — never a mesh
+  per block. Textures are generated on a 2D canvas; the project ships zero
+  external assets.
+- Saves hold only seed, config, progress uids and fog-of-war tiles; the world
+  is regenerated from the seed. Storage failures are swallowed on purpose —
+  progress is a convenience, never a requirement.
+
+## Maintaining this file
+
+Update the affected section in the **same commit** as any change that
+invalidates it: `TILE` or the coordinate helpers, the collision bounds, the
+generation pipeline (step order, `fork()` usage, zone layout, loot-before-gate),
+a new or changed unlock mechanism and its pool in `planProgression()`, the
+invariants `npm test` covers, the npm commands, or the layer boundaries. A stale
+CLAUDE.md is worse than none — it sends the next session after an architecture
+that no longer exists.
+
+Split it when it passes ~200 lines, or when a single section passes ~40. Keep a
+short core here (commands, determinism, layer boundaries, visual verification)
+and move the detail to `.claude/docs/` — the natural cuts are `coordinates.md`,
+`worldgen.md` and `mechanisms.md` — leaving a link from each section.
