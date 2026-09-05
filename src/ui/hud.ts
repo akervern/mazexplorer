@@ -127,12 +127,16 @@ export class Hud {
     }
     this.compassEl.hidden = false;
     this.compassLabel.textContent = reading.label;
-    // North sits at world yaw 0 (-Z). Counter-rotating by the player's yaw
-    // keeps the letter pointing at true north as they turn.
-    this.northEl.style.transform = `rotate(${-playerYaw}rad)`;
+    // Three.js yaw turns counter-clockwise seen from above, CSS `rotate()`
+    // clockwise, so compensating for the player's heading *adds* the yaw here.
+    // Subtracting mirrors the dial across the forward axis — it only looks
+    // right while facing north, and points the opposite way when facing south.
+    // North sits at world yaw 0 (-Z); rotating by the yaw keeps the letter on
+    // true north as the player turns.
+    this.northEl.style.transform = `rotate(${playerYaw}rad)`;
     if (reading.bearing !== null) {
       // Rotate into view space so the needle points relative to where we look.
-      const rel = reading.bearing - playerYaw;
+      const rel = reading.bearing + playerYaw;
       this.needleEl.style.transform = `rotate(${rel}rad)`;
       this.needleEl.style.opacity = String(0.45 + reading.confidence * 0.55);
       this.needleEl.hidden = false;
