@@ -1,60 +1,64 @@
 /**
- * Minimap: a real top-down orthographic view of the voxel world, rendered to
- * its own canvas, with progressive fog of war.
+ * Minimap: a real top-down orthographic view of the voxel world, drawn as a
+ * second viewport pass of the *main* renderer, with progressive fog of war.
  *
- * The scene is shared with the main view (same meshes, no duplication); only
- * the camera differs. Fog of war is a 2D overlay canvas: tiles the player has
- * been near are punched out of an opaque mask.
+ * It must share the main renderer: meshes live in one WebGL context, and a
+ * second WebGLRenderer cannot see them (GPU resources are per-context), which
+ * would render an empty map.
+ *
+ * The fog of war is a 2D overlay canvas stacked on top of the shared 3D canvas:
+ * tiles the player has been near get punched out of an opaque mask.
  */
 
 import * as THREE from 'three';
+import { TILE } from '../core/types.js';
+import { tileToWorld } from '../world/worldGen.js';
 import type { World } from '../core/types.js';
 
-const REVEAL_RADIUS = 5.5;
-const VIEW_SPAN = 26; // world units visible across the minimap
+/** Fog-of-war is tracked per maze tile, so these are in tile units. */
+const REVEAL_RADIUS = 3.5;
+/** World units visible across the minimap (scales with TILE). */
+const VIEW_SPAN = 15 * TILE;
+/** Low enough to stay inside every biome's fog range is impossible, so the
+ *  fog is disabled for this pass instead; the height only needs to clear the
+ *  tallest geometry (walls cap at y=3). */
+const CAM_HEIGHT = 40 * TILE;
 
 export class Minimap {
   readonly camera: THREE.OrthographicCamera;
-  private readonly renderer: THREE.WebGLRenderer;
   private readonly overlay: HTMLCanvasElement;
   private readonly octx: CanvasRenderingContext2D;
   /** Revealed tiles, `x,z`. */
   private revealed = new Set<string>();
-  private size: number;
+  /** CSS pixel size of the square map. */
+  private size = 200;
+  private lastPlayer = { x: 0, z: 0, yaw: 0 };
 
   constructor(
-    private readonly scene: THREE.Scene,
     private readonly world: World,
-    container: HTMLElement,
+    private readonly container: HTMLElement,
   ) {
-    this.size = 200;
     const half = VIEW_SPAN / 2;
-    this.camera = new THREE.OrthographicCamera(-half, half, half, -half, 0.1, 200);
-    this.camera.position.set(0, 60, 0);
+    this.camera = new THREE.OrthographicCamera(-half, half, half, -half, 0.1, 200 * TILE);
+    // Looking straight down: +Z must map to "down" on the map, so the camera's
+    // up vector points along -Z. lookAt() is called per-frame with an offset
+    // target, never a point colinear with up.
     this.camera.up.set(0, 0, -1);
-    this.camera.lookAt(0, 0, 0);
-
-    this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    this.renderer.setSize(this.size, this.size, false);
-    const canvas = this.renderer.domElement;
-    canvas.className = 'minimap-canvas';
-    container.appendChild(canvas);
 
     this.overlay = document.createElement('canvas');
     this.overlay.className = 'minimap-overlay';
-    this.overlay.width = this.size;
-    this.overlay.height = this.size;
     container.appendChild(this.overlay);
     this.octx = this.overlay.getContext('2d')!;
+    this.resize(container.clientWidth || this.size);
   }
 
-  /** Reveal the area around the player and re-render. */
+  /** Record exploration and position; the 3D pass happens in `render`. */
   update(playerX: number, playerZ: number, yaw: number): void {
-    // --- fog of war bookkeeping ---
+    this.lastPlayer = { x: playerX, z: playerZ, yaw };
+
     const r = Math.ceil(REVEAL_RADIUS);
-    const px = Math.floor(playerX);
-    const pz = Math.floor(playerZ);
+    const px = Math.floor(playerX / TILE);
+    const pz = Math.floor(playerZ / TILE);
     for (let dz = -r; dz <= r; dz++) {
       for (let dx = -r; dx <= r; dx++) {
         if (dx * dx + dz * dz > REVEAL_RADIUS * REVEAL_RADIUS) continue;
@@ -62,14 +66,49 @@ export class Minimap {
       }
     }
 
-    // --- 3D top-down pass ---
-    this.camera.position.set(playerX, 60, playerZ);
-    this.camera.lookAt(playerX, 0, playerZ);
-    this.camera.updateProjectionMatrix();
-    this.renderer.render(this.scene, this.camera);
-
-    // --- fog + markers overlay ---
     this.drawOverlay(playerX, playerZ, yaw);
+  }
+
+  /**
+   * Second render pass, sharing the main renderer so the map sees the same
+   * meshes. Call after the main scene render; it restores full-canvas state.
+   */
+  render(renderer: THREE.WebGLRenderer, scene: THREE.Scene): void {
+    const { x, z } = this.lastPlayer;
+    this.camera.position.set(x, CAM_HEIGHT, z);
+    // Target is directly below, so aim slightly along -Z to keep the view
+    // matrix well-defined against the -Z up vector.
+    this.camera.lookAt(x, 0, z - 0.001);
+    this.camera.updateProjectionMatrix();
+
+    // Map the viewport to the same screen box the CSS gives the container.
+    const rect = this.container.getBoundingClientRect();
+    const canvasRect = renderer.domElement.getBoundingClientRect();
+    const left = rect.left - canvasRect.left;
+    // WebGL's Y origin is bottom-left; the DOM's is top-left.
+    const bottom = canvasRect.height - (rect.top - canvasRect.top) - rect.height;
+
+    const prevScissorTest = renderer.getScissorTest();
+    renderer.setViewport(left, bottom, rect.width, rect.height);
+    renderer.setScissor(left, bottom, rect.width, rect.height);
+    renderer.setScissorTest(true);
+
+    // Biome fog is tuned for eye level (far: 24-60), so from 40 units up it
+    // would swallow the whole map in flat fog colour. Drop it for this pass.
+    const prevFog = scene.fog;
+    scene.fog = null;
+    // autoClear is off for this pass so the main view survives underneath.
+    const prevAutoClear = renderer.autoClear;
+    renderer.autoClear = false;
+    renderer.clearDepth();
+    renderer.render(scene, this.camera);
+    renderer.autoClear = prevAutoClear;
+    scene.fog = prevFog;
+
+    // Restore the full canvas for the next frame's main pass.
+    renderer.setScissorTest(prevScissorTest);
+    renderer.setViewport(0, 0, canvasRect.width, canvasRect.height);
+    renderer.setScissor(0, 0, canvasRect.width, canvasRect.height);
   }
 
   private worldToScreen(wx: number, wz: number, playerX: number, playerZ: number) {
@@ -89,16 +128,20 @@ export class Minimap {
     ctx.fillStyle = 'rgba(10, 12, 18, 0.92)';
     ctx.fillRect(0, 0, s, s);
 
-    const scale = s / VIEW_SPAN;
+    const scale = s / VIEW_SPAN; // screen px per world unit
     ctx.globalCompositeOperation = 'destination-out';
-    const span = Math.ceil(VIEW_SPAN / 2) + 2;
+    const span = Math.ceil(VIEW_SPAN / TILE / 2) + 2;
+    const ptx = Math.floor(playerX / TILE);
+    const ptz = Math.floor(playerZ / TILE);
     for (let dz = -span; dz <= span; dz++) {
       for (let dx = -span; dx <= span; dx++) {
-        const wx = Math.floor(playerX) + dx;
-        const wz = Math.floor(playerZ) + dz;
-        if (!this.revealed.has(`${wx},${wz}`)) continue;
-        const p = this.worldToScreen(wx, wz, playerX, playerZ);
-        ctx.fillRect(p.x - scale / 2, p.y - scale / 2, scale + 1, scale + 1);
+        const tx = ptx + dx;
+        const tz = ptz + dz;
+        if (!this.revealed.has(`${tx},${tz}`)) continue;
+        // A revealed tile covers TILE x TILE world units.
+        const p = this.worldToScreen(tx * TILE, tz * TILE, playerX, playerZ);
+        const side = scale * TILE;
+        ctx.fillRect(p.x, p.y, side + 1, side + 1);
       }
     }
     ctx.globalCompositeOperation = 'source-over';
@@ -107,8 +150,7 @@ export class Minimap {
     for (const tp of this.world.teleporters) {
       if (!tp.discovered) continue;
       const zone = this.world.zones.find((z) => z.id === tp.zoneId)!;
-      const wx = zone.originX + tp.tile.x + 0.5;
-      const wz = zone.originZ + tp.tile.y + 0.5;
+      const { x: wx, z: wz } = tileToWorld(zone, tp.tile);
       if (Math.abs(wx - playerX) > VIEW_SPAN / 2 || Math.abs(wz - playerZ) > VIEW_SPAN / 2) continue;
       const p = this.worldToScreen(wx, wz, playerX, playerZ);
       ctx.fillStyle = '#66ccff';
@@ -121,10 +163,8 @@ export class Minimap {
     }
 
     // --- player arrow ---
-    const cx = s / 2;
-    const cy = s / 2;
     ctx.save();
-    ctx.translate(cx, cy);
+    ctx.translate(s / 2, s / 2);
     // yaw 0 faces -Z (up on the map); screen Y grows downward.
     ctx.rotate(-yaw);
     ctx.fillStyle = '#ffe066';
@@ -144,9 +184,12 @@ export class Minimap {
   /** Resize to the CSS box the container currently occupies. */
   resize(px: number): void {
     this.size = Math.max(120, Math.round(px));
-    this.renderer.setSize(this.size, this.size, false);
-    this.overlay.width = this.size;
-    this.overlay.height = this.size;
+    const dpr = Math.min(devicePixelRatio, 2);
+    this.overlay.width = this.size * dpr;
+    this.overlay.height = this.size * dpr;
+    this.overlay.style.width = '100%';
+    this.overlay.style.height = '100%';
+    this.octx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
   /** Serialisable fog-of-war state. */
@@ -159,8 +202,6 @@ export class Minimap {
   }
 
   dispose(): void {
-    this.renderer.dispose();
-    this.renderer.domElement.remove();
     this.overlay.remove();
   }
 }

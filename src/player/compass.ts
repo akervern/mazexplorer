@@ -13,6 +13,7 @@
 import type { Inventory } from '../core/inventory.js';
 import type { Mechanism, World, Zone } from '../core/types.js';
 import { MECHANISM_TYPES } from '../world/unlockMechanisms.js';
+import { tileToWorld } from '../world/worldGen.js';
 
 /** Seconds the needle wanders before locking on to a new target. */
 const SETTLE_TIME = 1.6;
@@ -57,14 +58,16 @@ export class Compass {
 
     for (const p of this.world.pickups) {
       if (p.taken || p.zoneId !== zone.id) continue;
-      consider('pickup', p.uid, zone.originX + p.tile.x + 0.5, zone.originZ + p.tile.y + 0.5);
+      const w = tileToWorld(zone, p.tile);
+      consider('pickup', p.uid, w.x, w.z);
     }
 
     // A locked mechanism you can already satisfy is worth pointing at.
     for (const m of this.world.mechanisms) {
       if (m.unlocked || m.zoneId !== zone.id) continue;
       if (!MECHANISM_TYPES[m.type].onCheck(this.inventory, m)) continue;
-      consider('mechanism', m.uid, zone.originX + m.target.tile.x + 0.5, zone.originZ + m.target.tile.y + 0.5);
+      const w = tileToWorld(zone, m.target.tile);
+      consider('mechanism', m.uid, w.x, w.z);
     }
 
     return best;

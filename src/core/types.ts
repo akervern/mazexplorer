@@ -196,3 +196,13 @@ export interface InventoryLike {
   add(id: string, n?: number): void;
   remove(id: string, n?: number): void;
 }
+
+/**
+ * World scale: how many voxels one maze tile spans.
+ *
+ * The maze grid is logical (1 cell = 1 tile); the rendered world multiplies it
+ * so corridors are comfortable to walk. At 1 the player (radius 0.32) has only
+ * 0.18 of clearance per side and constantly scrapes the walls; at 2 a corridor
+ * is 2 blocks wide against 3 of wall height, which reads like Minecraft.
+ */
+export const TILE = 2;

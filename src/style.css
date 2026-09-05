@@ -327,16 +327,17 @@ button.primary:hover {
   border: 2px solid var(--border);
   border-radius: 0.5rem;
   overflow: hidden;
-  background: #0a0c12;
   box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.5);
 }
 
-.minimap-canvas,
+/* The 3D map is drawn by the main canvas into this box (viewport pass), so
+   only the fog-of-war overlay lives here as a real element. */
 .minimap-overlay {
   position: absolute;
   inset: 0;
-  width: 100% !important;
-  height: 100% !important;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 
 /* compass sits just under the minimap */
@@ -556,4 +557,41 @@ button.primary:hover {
     left: 0.6rem;
     max-width: 55vw;
   }
+}
+
+/* Pointer lock needs a user gesture, so the game starts playable but
+   un-captured; this hint sits over the view until the player clicks. */
+.click-to-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.18s ease;
+}
+
+.click-to-play.is-visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.ctp-card {
+  display: grid;
+  gap: 0.3rem;
+  padding: 1rem 1.6rem;
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 0.75rem 2rem rgba(0, 0, 0, 0.5);
+}
+
+.ctp-card strong {
+  font-size: 1.2em;
+}
+
+.ctp-card span {
+  color: var(--muted);
+  font-size: 0.85em;
 }

@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import type { World, Zone } from '../core/types.js';
 import { ITEMS } from '../world/items.js';
 import { makeLabelTexture } from './textures.js';
+import { tileToWorld } from '../world/worldGen.js';
 
 export interface EntityViews {
   group: THREE.Group;
@@ -54,7 +55,8 @@ export function buildEntities(world: World): EntityViews {
     disposables.push(tex, sprMat);
 
     const baseY = 0.55;
-    obj.position.set(zone.originX + p.tile.x + 0.5, baseY, zone.originZ + p.tile.y + 0.5);
+    const pw = tileToWorld(zone, p.tile);
+    obj.position.set(pw.x, baseY, pw.z);
     group.add(obj);
     pickups.set(p.uid, obj);
     animated.push({ obj, baseY, spin: 1.2 });
@@ -86,7 +88,8 @@ export function buildEntities(world: World): EntityViews {
     obj.add(spr);
     disposables.push(tex, sprMat);
 
-    obj.position.set(zone.originX + s.tile.x + 0.5, 0, zone.originZ + s.tile.y + 0.5);
+    const sw = tileToWorld(zone, s.tile);
+    obj.position.set(sw.x, 0, sw.z);
     group.add(obj);
     signposts.set(s.uid, obj);
   }
@@ -118,7 +121,8 @@ export function buildEntities(world: World): EntityViews {
     obj.add(ring);
     disposables.push(padGeo, padMat, ringGeo, ringMat);
 
-    obj.position.set(zone.originX + t.tile.x + 0.5, 0, zone.originZ + t.tile.y + 0.5);
+    const tw = tileToWorld(zone, t.tile);
+    obj.position.set(tw.x, 0, tw.z);
     group.add(obj);
     teleporters.set(t.uid, obj);
     animated.push({ obj: ring, baseY: 0.55, spin: 0.9 });

@@ -67,11 +67,15 @@ function quitToMenu(): void {
   menu.show();
 }
 
-// Releasing pointer lock (Esc, alt-tab) pauses rather than leaving the player
-// walking blind — Pointer Lock stays an input option, never a hard dependency.
+/**
+ * Losing pointer lock mid-game (Esc, alt-tab) pauses, so the player is not left
+ * walking blind. But the lock is never granted before the player's first click
+ * — browsers require a user gesture — so a game that has not captured it yet
+ * must keep running rather than pausing on startup.
+ */
 document.addEventListener('pointerlockchange', () => {
-  if (!document.pointerLockElement && game && !pause.visible) {
-    game.pause();
-    pause.show();
-  }
+  if (document.pointerLockElement) return;
+  if (!game || pause.visible || !game.hasHadPointerLock) return;
+  game.pause();
+  pause.show();
 });

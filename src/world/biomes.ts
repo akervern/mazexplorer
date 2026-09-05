@@ -15,7 +15,7 @@ export const BIOMES: Record<string, ZoneStyle> = {
     name: 'Forêt',
     blurb: 'Une futaie dense, tapis de mousse et troncs serrés.',
     sky: 0x8fc7e8,
-    fog: { color: 0xa9d3ea, near: 14, far: 46 },
+    fog: { color: 0xa9d3ea, near: 28, far: 92 },
     light: { sun: 0.95, ambient: 0.55, sunColor: 0xfff3d0, ambientColor: 0xa8c8e0 },
     blocks: {
       floor: { tex: 'grass', color: 0x6aa84f },
@@ -31,7 +31,7 @@ export const BIOMES: Record<string, ZoneStyle> = {
     name: 'Désert',
     blurb: 'Des dunes brûlantes et des murs de grès taillé.',
     sky: 0xe8c98a,
-    fog: { color: 0xe3c489, near: 18, far: 60 },
+    fog: { color: 0xe3c489, near: 36, far: 120 },
     light: { sun: 1.15, ambient: 0.62, sunColor: 0xfff0c4, ambientColor: 0xe0cfa0 },
     blocks: {
       floor: { tex: 'sand', color: 0xd9c188 },
@@ -47,7 +47,7 @@ export const BIOMES: Record<string, ZoneStyle> = {
     name: 'Neige',
     blurb: 'Un dédale de glace où la neige ne cesse jamais de tomber.',
     sky: 0xbcd4e6,
-    fog: { color: 0xcfe0ec, near: 10, far: 34 },
+    fog: { color: 0xcfe0ec, near: 20, far: 68 },
     light: { sun: 0.8, ambient: 0.7, sunColor: 0xeaf4ff, ambientColor: 0xc4d8ea },
     blocks: {
       floor: { tex: 'snow', color: 0xeef4f8 },
@@ -63,7 +63,7 @@ export const BIOMES: Record<string, ZoneStyle> = {
     name: 'Grotte',
     blurb: 'Des galeries humides éclairées par des veines luminescentes.',
     sky: 0x14161f,
-    fog: { color: 0x14161f, near: 6, far: 24 },
+    fog: { color: 0x14161f, near: 12, far: 48 },
     light: { sun: 0.34, ambient: 0.36, sunColor: 0x9fb4d8, ambientColor: 0x4a5570 },
     blocks: {
       floor: { tex: 'gravel', color: 0x5a5a62 },
@@ -79,7 +79,7 @@ export const BIOMES: Record<string, ZoneStyle> = {
     name: 'Marais',
     blurb: 'De la boue, des lianes, et une eau qui ne reflète rien.',
     sky: 0x6d7a52,
-    fog: { color: 0x63704a, near: 8, far: 30 },
+    fog: { color: 0x63704a, near: 16, far: 60 },
     light: { sun: 0.62, ambient: 0.48, sunColor: 0xd8e0a8, ambientColor: 0x66784e },
     blocks: {
       floor: { tex: 'mud', color: 0x5c4a32 },
@@ -95,7 +95,7 @@ export const BIOMES: Record<string, ZoneStyle> = {
     name: 'Ruines',
     blurb: 'Un temple effondré dont les dalles gardent encore des marques.',
     sky: 0xc8a882,
-    fog: { color: 0xbfa079, near: 12, far: 40 },
+    fog: { color: 0xbfa079, near: 24, far: 80 },
     light: { sun: 0.88, ambient: 0.52, sunColor: 0xffe8c0, ambientColor: 0xb49a7a },
     blocks: {
       floor: { tex: 'tiles', color: 0x9a8d78 },
@@ -116,7 +116,7 @@ export const CORRIDOR_STYLE: ZoneStyle = {
   id: 'corridor',
   name: 'Corridor',
   sky: 0x2a2d38,
-  fog: { color: 0x23262f, near: 8, far: 26 },
+  fog: { color: 0x23262f, near: 16, far: 52 },
   light: { sun: 0.4, ambient: 0.42, sunColor: 0xc0c8d8, ambientColor: 0x5a6274 },
   blocks: {
     floor: { tex: 'tiles', color: 0x6b6b73 },

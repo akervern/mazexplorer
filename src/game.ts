@@ -29,10 +29,13 @@ import { Hud } from './ui/hud.js';
 import { Minimap } from './ui/minimap.js';
 import { ITEMS } from './world/items.js';
 import { MECHANISM_TYPES, tryUnlock } from './world/unlockMechanisms.js';
-import { generateWorld, zoneAtWorldX } from './world/worldGen.js';
+import { TILE } from './core/types.js';
+import { generateWorld, tileToWorld, zoneAtWorldX } from './world/worldGen.js';
 
-const INTERACT_RANGE = 2.6;
-const PICKUP_RANGE = 1.35;
+// Interaction distances scale with the world: a tile is TILE units across, so
+// these stay the same *in tiles* regardless of the voxel scale.
+const INTERACT_RANGE = 1.6 * TILE;
+const PICKUP_RANGE = 0.9 * TILE;
 const AMBIENCE_BLEND = 2.2; // seconds to cross-fade between biome moods
 
 export interface GameHooks {
@@ -96,7 +99,8 @@ export class Game {
       74,
       container.clientWidth / container.clientHeight,
       0.1,
-      220,
+      // Beyond the farthest biome fog (120), so nothing pops at the fog wall.
+      160,
     );
 
     // --- world geometry ---
@@ -130,8 +134,8 @@ export class Game {
     this.sun.castShadow = config.shadows ?? true;
     this.sun.shadow.mapSize.set(1024, 1024);
     this.sun.shadow.camera.near = 1;
-    this.sun.shadow.camera.far = 160;
-    const d = 42;
+    this.sun.shadow.camera.far = 200;
+    const d = 30 * TILE;
     this.sun.shadow.camera.left = -d;
     this.sun.shadow.camera.right = d;
     this.sun.shadow.camera.top = d;
@@ -143,18 +147,14 @@ export class Game {
     this.player = new PlayerController(
       this.built.solid,
       this.input,
-      {
-        x: startZone.originX + this.world.start.x + 0.5,
-        y: 0,
-        z: startZone.originZ + this.world.start.y + 0.5,
-      },
+      { ...tileToWorld(startZone, this.world.start), y: 0 },
     );
     this.keyboard = new KeyboardMouseInput(this.renderer.domElement);
     this.input.add(this.keyboard);
 
     // --- UI ---
     this.hud = new Hud(container);
-    this.minimap = new Minimap(this.scene, this.world, this.hud.createMinimapContainer());
+    this.minimap = new Minimap(this.world, this.hud.createMinimapContainer());
     this.compass = new Compass(this.world, this.inventory);
     this.hud.renderInventory(this.inventory);
     this.hud.setZoneName(startZone.style.name);
@@ -180,6 +180,11 @@ export class Game {
 
     window.addEventListener('resize', this.onResize);
     this.applyWeather(startZone.style);
+  }
+
+  /** Whether pointer lock has ever been granted for this game. */
+  get hasHadPointerLock(): boolean {
+    return this.keyboard.everLocked;
   }
 
   private zoneOf(id: string): Zone {
@@ -270,10 +275,14 @@ export class Game {
     const dt = Math.min(0.05, this.clock.getDelta());
     this.elapsed += dt;
     this.update(dt);
-    this.renderer.render(this.scene, this.camera);
 
     const pos = this.player.state.position;
     this.minimap.update(pos.x, pos.z, this.player.state.yaw);
+
+    this.renderer.render(this.scene, this.camera);
+    // Second pass into the minimap's screen box, same renderer so it sees the
+    // same meshes (a separate WebGL context could not).
+    this.minimap.render(this.renderer, this.scene);
   };
 
   // ------------------------------------------------------------------- update
@@ -304,6 +313,7 @@ export class Game {
     this.hud.updateCompass(reading, this.player.state.yaw);
 
     this.hud.setTime(this.elapsed);
+    this.hud.setPointerLockHint(!this.keyboard.isActive && !this.hud.popupOpen);
     this.hud.update(dt);
 
     this.checkFinish();
@@ -390,8 +400,9 @@ export class Game {
     for (const p of this.world.pickups) {
       if (p.taken) continue;
       const zone = this.zoneOf(p.zoneId);
-      const dx = zone.originX + p.tile.x + 0.5 - pos.x;
-      const dz = zone.originZ + p.tile.y + 0.5 - pos.z;
+      const w = tileToWorld(zone, p.tile);
+      const dx = w.x - pos.x;
+      const dz = w.z - pos.z;
       if (dx * dx + dz * dz > PICKUP_RANGE * PICKUP_RANGE) continue;
 
       p.taken = true;
@@ -430,26 +441,20 @@ export class Game {
 
     for (const s of this.world.signposts) {
       const zone = this.zoneOf(s.zoneId);
-      test(zone.originX + s.tile.x + 0.5, zone.originZ + s.tile.y + 0.5, () => ({
-        kind: 'sign',
-        uid: s.uid,
-      }));
+      const w = tileToWorld(zone, s.tile);
+      test(w.x, w.z, () => ({ kind: 'sign', uid: s.uid }));
     }
     for (const t of this.world.teleporters) {
       if (!t.discovered) continue;
       const zone = this.zoneOf(t.zoneId);
-      test(zone.originX + t.tile.x + 0.5, zone.originZ + t.tile.y + 0.5, () => ({
-        kind: 'teleporter',
-        uid: t.uid,
-      }));
+      const w = tileToWorld(zone, t.tile);
+      test(w.x, w.z, () => ({ kind: 'teleporter', uid: t.uid }));
     }
     for (const m of this.world.mechanisms) {
       if (m.unlocked) continue;
       const zone = this.zoneOf(m.zoneId);
-      test(zone.originX + m.target.tile.x + 0.5, zone.originZ + m.target.tile.y + 0.5, () => ({
-        kind: 'mechanism',
-        mech: m,
-      }));
+      const w = tileToWorld(zone, m.target.tile);
+      test(w.x, w.z, () => ({ kind: 'mechanism', mech: m }));
     }
     return best;
   }
@@ -513,8 +518,9 @@ export class Game {
     for (const m of this.world.mechanisms) {
       if (m.unlocked) continue;
       const zone = this.zoneOf(m.zoneId);
-      const dx = zone.originX + m.target.tile.x + 0.5 - pos.x;
-      const dz = zone.originZ + m.target.tile.y + 0.5 - pos.z;
+      const w = tileToWorld(zone, m.target.tile);
+      const dx = w.x - pos.x;
+      const dz = w.z - pos.z;
       if (dx * dx + dz * dz > INTERACT_RANGE * INTERACT_RANGE) continue;
 
       const result = tryUnlock(m, this.inventory, this.mutator);
@@ -524,11 +530,8 @@ export class Game {
 
   private onUnlocked(mech: Mechanism, message: string): void {
     const zone = this.zoneOf(mech.zoneId);
-    const at = new THREE.Vector3(
-      zone.originX + mech.target.tile.x + 0.5,
-      1,
-      zone.originZ + mech.target.tile.y + 0.5,
-    );
+    const mw = tileToWorld(zone, mech.target.tile);
+    const at = new THREE.Vector3(mw.x, 1, mw.z);
     this.effects.push(spawnBurst(this.scene, at, 0xffe9a8, 22));
     this.hud.toast(message, 4);
     this.persist();
@@ -538,7 +541,8 @@ export class Game {
     const tp = this.world.teleporters.find((t) => t.uid === uid);
     if (!tp) return;
     const zone = this.zoneOf(tp.zoneId);
-    this.player.teleportTo(zone.originX + tp.tile.x + 0.5, 0, zone.originZ + tp.tile.y + 0.5);
+    const tw = tileToWorld(zone, tp.tile);
+    this.player.teleportTo(tw.x, 0, tw.z);
     this.currentZone = zone;
     this.fromStyle = this.targetStyle;
     this.targetStyle = zone.style;
@@ -614,8 +618,9 @@ export class Game {
     if (finalMech && !finalMech.unlocked) return;
 
     const pos = this.player.state.position;
-    const ex = lastZone.originX + this.world.exit.tile.x + 0.5;
-    const ez = lastZone.originZ + this.world.exit.tile.y + 0.5;
+    const ew = tileToWorld(lastZone, this.world.exit.tile);
+    const ex = ew.x;
+    const ez = ew.z;
     if ((ex - pos.x) ** 2 + (ez - pos.z) ** 2 > 2.2 * 2.2) return;
 
     this.finished = true;

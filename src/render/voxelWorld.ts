@@ -12,6 +12,7 @@
 import * as THREE from 'three';
 import type { BlockingKind, Mechanism, Tile, World, Zone } from '../core/types.js';
 import { CELL } from '../world/maze.js';
+import { TILE } from '../core/types.js';
 import { getTexture } from './textures.js';
 
 const WALL_HEIGHT = 3;
@@ -80,6 +81,8 @@ export interface BuiltWorld {
 }
 
 const key = (x: number, y: number, z: number) => `${x},${y},${z}`;
+/** Zone-grid tile key (pre-TILE scaling), used to look up blocked tiles. */
+const tileKey = (tx: number, tz: number) => `t${tx},${tz}`;
 
 export function buildWorld(world: World, opts: { shadows: boolean }): BuiltWorld {
   const group = new THREE.Group();
@@ -94,7 +97,7 @@ export function buildWorld(world: World, opts: { shadows: boolean }): BuiltWorld
     const z = world.zones.find((zz) => zz.id === m.zoneId)!;
     // A chasm covers several tiles; everything else blocks a single one.
     for (const t of m.target.tiles ?? [m.target.tile]) {
-      blockedTiles.set(key(z.originX + t.x, 0, z.originZ + t.y), m);
+      blockedTiles.set(tileKey(z.originX + t.x, z.originZ + t.y), m);
     }
   }
 
@@ -105,16 +108,26 @@ export function buildWorld(world: World, opts: { shadows: boolean }): BuiltWorld
   // Link tiles in the gutters between zones.
   for (const zone of world.zones) {
     const style = zone.style.blocks;
+    const linkSet = new Set(zone.links.map((l) => `${l.x},${l.z}`));
     for (const l of zone.links) {
-      batcher.add(style.floor.tex, style.floor.color, l.x, -1, l.z);
-      solid.add(key(l.x, -1, l.z));
-      // Low kerb walls so the link reads as a passage, not open ground.
+      const bx = l.x * TILE;
+      const bz = l.z * TILE;
+      for (let ox = 0; ox < TILE; ox++) {
+        for (let oz = 0; oz < TILE; oz++) {
+          batcher.add(style.floor.tex, style.floor.color, bx + ox, -1, bz + oz);
+          solid.add(key(bx + ox, -1, bz + oz));
+        }
+      }
+      // Kerb walls on the sides the link does not continue toward, so the
+      // gutter reads as a passage rather than open ground.
       for (const dz of [-1, 1]) {
-        const wz = l.z + dz;
-        if (zone.links.some((o) => o.x === l.x && o.z === wz)) continue;
-        for (let y = 0; y < WALL_HEIGHT; y++) {
-          batcher.add(style.wall.tex, style.wall.color, l.x, y, wz);
-          solid.add(key(l.x, y, wz));
+        if (linkSet.has(`${l.x},${l.z + dz}`)) continue;
+        const wallZ = dz < 0 ? bz - 1 : bz + TILE;
+        for (let ox = 0; ox < TILE; ox++) {
+          for (let y = 0; y < WALL_HEIGHT; y++) {
+            batcher.add(style.wall.tex, style.wall.color, bx + ox, y, wallZ);
+            solid.add(key(bx + ox, y, wallZ));
+          }
         }
       }
     }
@@ -159,27 +172,34 @@ function buildZone(
 
   for (let ty = 0; ty < h; ty++) {
     for (let tx = 0; tx < w; tx++) {
-      const wx = originX + tx;
-      const wz = originZ + ty;
       const isFloor = grid[ty * w + tx] === CELL.FLOOR;
+      // One maze tile spans TILE x TILE voxel columns, so corridors are wide
+      // enough to walk without scraping both walls.
+      const bx = (originX + tx) * TILE;
+      const bz = (originZ + ty) * TILE;
 
       if (isFloor) {
         // A gap mechanism swallows the floor here: the player must bridge it.
-        const isGap = blockedTiles.get(key(wx, 0, wz))?.target.type === 'gap';
-        if (!isGap) {
-          // Floor slab one block below walking level.
-          batcher.add(style.floor.tex, style.floor.color, wx, -1, wz);
-          solid.add(key(wx, -1, wz));
+        const isGap = blockedTiles.get(tileKey(originX + tx, originZ + ty))?.target.type === 'gap';
+        if (isGap) continue;
+        for (let ox = 0; ox < TILE; ox++) {
+          for (let oz = 0; oz < TILE; oz++) {
+            batcher.add(style.floor.tex, style.floor.color, bx + ox, -1, bz + oz);
+            solid.add(key(bx + ox, -1, bz + oz));
+          }
         }
       } else {
-        // Wall column.
-        for (let y = 0; y < WALL_HEIGHT; y++) {
-          batcher.add(style.wall.tex, style.wall.color, wx, y, wz);
-          solid.add(key(wx, y, wz));
+        for (let ox = 0; ox < TILE; ox++) {
+          for (let oz = 0; oz < TILE; oz++) {
+            for (let y = 0; y < WALL_HEIGHT; y++) {
+              batcher.add(style.wall.tex, style.wall.color, bx + ox, y, bz + oz);
+              solid.add(key(bx + ox, y, bz + oz));
+            }
+            // Cap the wall with an accent block for silhouette.
+            batcher.add(style.accent.tex, style.accent.color, bx + ox, WALL_HEIGHT, bz + oz);
+            solid.add(key(bx + ox, WALL_HEIGHT, bz + oz));
+          }
         }
-        // Cap the wall with an accent block for silhouette.
-        batcher.add(style.accent.tex, style.accent.color, wx, WALL_HEIGHT, wz);
-        solid.add(key(wx, WALL_HEIGHT, wz));
       }
     }
   }
@@ -194,29 +214,39 @@ function buildBlocker(
   shadows: boolean,
 ): THREE.Object3D[] {
   const spec = BLOCK_STYLE[m.target.type];
-  const wx = zone.originX + m.target.tile.x;
-  const wz = zone.originZ + m.target.tile.y;
+  const bx = (zone.originX + m.target.tile.x) * TILE;
+  const bz = (zone.originZ + m.target.tile.y) * TILE;
   const out: THREE.Object3D[] = [];
 
   if (m.target.type === 'gap') {
     // A gap is an absence: nothing to render, but the floor slabs are missing
-    // so the player cannot cross. Mark every covered tile as a void.
+    // so the player cannot cross. Void every voxel of every covered tile.
     for (const t of m.target.tiles ?? [m.target.tile]) {
-      solid.delete(key(zone.originX + t.x, -1, zone.originZ + t.y));
+      const tx = (zone.originX + t.x) * TILE;
+      const tz = (zone.originZ + t.y) * TILE;
+      for (let ox = 0; ox < TILE; ox++) {
+        for (let oz = 0; oz < TILE; oz++) solid.delete(key(tx + ox, -1, tz + oz));
+      }
     }
     return out;
   }
 
   const material = new THREE.MeshLambertMaterial({ map: getTexture(spec.tex, spec.color) });
+  // A pedestal stays waist-high so it reads as an altar; the rest fills the
+  // passage. Both span the full tile width now that a tile is TILE voxels.
   const height = m.target.type === 'pedestal' ? 1 : WALL_HEIGHT;
 
-  for (let y = 0; y < height; y++) {
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.set(wx, y, wz);
-    mesh.castShadow = shadows;
-    mesh.receiveShadow = true;
-    out.push(mesh);
-    solid.add(key(wx, y, wz));
+  for (let ox = 0; ox < TILE; ox++) {
+    for (let oz = 0; oz < TILE; oz++) {
+      for (let y = 0; y < height; y++) {
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.set(bx + ox, y, bz + oz);
+        mesh.castShadow = shadows;
+        mesh.receiveShadow = true;
+        out.push(mesh);
+        solid.add(key(bx + ox, y, bz + oz));
+      }
+    }
   }
   return out;
 }
@@ -237,11 +267,15 @@ export function clearBlocker(built: BuiltWorld, m: Mechanism, zone: Zone): void 
   for (const mat of materials) mat.dispose(); // one material shared per column
   built.blockers.set(m.uid, []);
 
-  const wx = zone.originX + m.target.tile.x;
-  const wz = zone.originZ + m.target.tile.y;
-  // Clear the column the blocker occupied, but leave the floor slab at y=-1
+  const bx = (zone.originX + m.target.tile.x) * TILE;
+  const bz = (zone.originZ + m.target.tile.y) * TILE;
+  // Clear the columns the blocker occupied, but leave the floor slabs at y=-1
   // intact so the player has something to walk on.
-  for (let y = 0; y <= WALL_HEIGHT; y++) built.solid.delete(key(wx, y, wz));
+  for (let ox = 0; ox < TILE; ox++) {
+    for (let oz = 0; oz < TILE; oz++) {
+      for (let y = 0; y <= WALL_HEIGHT; y++) built.solid.delete(key(bx + ox, y, bz + oz));
+    }
+  }
 }
 
 /** Lay a floor slab across a gap (the bridge mechanism). */
@@ -250,20 +284,27 @@ export function placeBridgeTile(
   zone: Zone,
   tile: Tile,
   shadows: boolean,
-): THREE.Mesh {
-  const wx = zone.originX + tile.x;
-  const wz = zone.originZ + tile.y;
+): THREE.Object3D {
+  const bx = (zone.originX + tile.x) * TILE;
+  const bz = (zone.originZ + tile.y) * TILE;
   const style = zone.style.blocks;
-  const mesh = new THREE.Mesh(
-    BRIDGE_GEOMETRY,
-    new THREE.MeshLambertMaterial({ map: getTexture(style.accent.tex, style.accent.color) }),
-  );
-  mesh.position.set(wx, -1, wz);
-  mesh.castShadow = shadows;
-  mesh.receiveShadow = true;
-  built.group.add(mesh);
-  built.solid.add(key(wx, -1, wz));
-  return mesh;
+  const material = new THREE.MeshLambertMaterial({
+    map: getTexture(style.accent.tex, style.accent.color),
+  });
+  // One slab per voxel of the tile, grouped so the caller gets a single object.
+  const group = new THREE.Group();
+  for (let ox = 0; ox < TILE; ox++) {
+    for (let oz = 0; oz < TILE; oz++) {
+      const mesh = new THREE.Mesh(BRIDGE_GEOMETRY, material);
+      mesh.position.set(bx + ox, -1, bz + oz);
+      mesh.castShadow = shadows;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+      built.solid.add(key(bx + ox, -1, bz + oz));
+    }
+  }
+  built.group.add(group);
+  return group;
 }
 
 export { WALL_HEIGHT, key as blockKey };

@@ -72,8 +72,21 @@ export class KeyboardMouseInput implements InputSource {
     this.keys.clear();
   }
 
+  /** True once the browser has granted pointer lock at least once. */
+  everLocked = false;
+
   requestLock = (): void => {
-    if (!this.locked) void this.element.requestPointerLock?.();
+    if (this.locked) return;
+    // Chrome rejects this outside a user gesture, and rejects a second request
+    // made too soon after an exit. Neither is an error worth surfacing.
+    try {
+      const r = this.element.requestPointerLock?.() as unknown;
+      if (r && typeof (r as Promise<void>).catch === 'function') {
+        (r as Promise<void>).catch(() => {});
+      }
+    } catch {
+      /* pointer lock unavailable (mobile, embedded webview) — play unlocked */
+    }
   };
 
   releaseLock(): void {
@@ -86,7 +99,8 @@ export class KeyboardMouseInput implements InputSource {
 
   private onLockChange = (): void => {
     this.locked = document.pointerLockElement === this.element;
-    if (!this.locked) this.keys.clear();
+    if (this.locked) this.everLocked = true;
+    else this.keys.clear();
   };
 
   private onMouseMove = (e: MouseEvent): void => {

@@ -9,6 +9,7 @@
  */
 
 import { Rng } from '../core/rng.js';
+import { TILE } from '../core/types.js';
 import type {
   GameConfig,
   Mechanism,
@@ -571,9 +572,26 @@ function placeTeleporters(world: World, root: Rng): void {
   }
 }
 
-/** World coordinates of a zone tile (voxel space, centre of the tile). */
+/**
+ * World coordinates of the CENTRE of a zone tile.
+ * Every tile -> world conversion must go through here (or `tileOrigin`), so the
+ * TILE scale stays a single knob rather than 36 scattered `+ 0.5` sites.
+ */
 export function tileToWorld(zone: Zone, tile: Tile): Vec2 {
-  return { x: zone.originX + tile.x + 0.5, z: zone.originZ + tile.y + 0.5 };
+  return {
+    x: (zone.originX + tile.x) * TILE + TILE / 2,
+    z: (zone.originZ + tile.y) * TILE + TILE / 2,
+  };
+}
+
+/** World coordinates of a tile's low corner (for placing voxels). */
+export function tileOrigin(zone: Zone, tile: Tile): Vec2 {
+  return { x: (zone.originX + tile.x) * TILE, z: (zone.originZ + tile.y) * TILE };
+}
+
+/** Scale a world-space link tile (already in zone-grid units). */
+export function linkToWorld(l: Vec2): Vec2 {
+  return { x: l.x * TILE, z: l.z * TILE };
 }
 
 export function zoneById(world: World, id: string): Zone | undefined {
@@ -581,7 +599,8 @@ export function zoneById(world: World, id: string): Zone | undefined {
 }
 
 /** Which zone contains a world-space X coordinate (for ambience switching). */
-export function zoneAtWorldX(world: World, x: number): Zone {
+export function zoneAtWorldX(world: World, worldX: number): Zone {
+  const x = worldX / TILE; // back into zone-grid units
   let best = world.zones[0];
   for (const z of world.zones) {
     if (x >= z.originX - ZONE_GUTTER / 2 && x < z.originX + z.w + ZONE_GUTTER / 2) return z;

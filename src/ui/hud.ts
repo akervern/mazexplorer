@@ -24,6 +24,7 @@ export class Hud {
   private readonly compassLabel: HTMLElement;
   private readonly timerEl: HTMLElement;
   private readonly zoneEl: HTMLElement;
+  private readonly clickPlayEl: HTMLElement;
   private toastTimer = 0;
 
   /** Set while the teleporter menu is open; blocks other interactions. */
@@ -45,6 +46,12 @@ export class Hud {
       <div class="inventory" data-inventory></div>
       <div class="prompt" data-prompt hidden></div>
       <div class="toast" data-toast hidden></div>
+      <div class="click-to-play" data-click-play>
+        <div class="ctp-card">
+          <strong>Clique pour jouer</strong>
+          <span>La souris pilote la caméra · Échap pour libérer</span>
+        </div>
+      </div>
       <div class="popup-backdrop" data-popup hidden></div>
     `;
     container.appendChild(this.root);
@@ -59,6 +66,12 @@ export class Hud {
     this.compassLabel = q('[data-compass-label]');
     this.timerEl = q('[data-timer]');
     this.zoneEl = q('[data-zone]');
+    this.clickPlayEl = q('[data-click-play]');
+  }
+
+  /** Show the "click to play" hint whenever the camera is not captured. */
+  setPointerLockHint(visible: boolean): void {
+    this.clickPlayEl.classList.toggle('is-visible', visible);
   }
 
   get element(): HTMLElement {
