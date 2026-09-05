@@ -15,8 +15,11 @@ import { TILE } from '../core/types.js';
 import { tileToWorld } from '../world/worldGen.js';
 import type { World } from '../core/types.js';
 
-/** Fog-of-war is tracked per maze tile, so these are in tile units. */
-const REVEAL_RADIUS = 3.5;
+/**
+ * How far vision spreads along open passages, in maze tiles. This is a path
+ * distance, not a straight-line radius: walls stop it.
+ */
+const REVEAL_RADIUS = 6;
 /** World units visible across the minimap (scales with TILE). */
 const VIEW_SPAN = 15 * TILE;
 /** Low enough to stay inside every biome's fog range is impossible, so the
@@ -34,10 +37,17 @@ export class Minimap {
   private size = 200;
   private lastPlayer = { x: 0, z: 0, yaw: 0 };
 
+  /** Walkable tiles in world-grid units, `tx,tz` — walls are absent. */
+  private readonly walkable = new Set<string>();
+
   constructor(
     private readonly world: World,
     private readonly container: HTMLElement,
   ) {
+    for (const z of world.zones) {
+      for (const t of z.tiles) this.walkable.add(`${z.originX + t.x},${z.originZ + t.y}`);
+      for (const l of z.links) this.walkable.add(`${l.x},${l.z}`);
+    }
     const half = VIEW_SPAN / 2;
     this.camera = new THREE.OrthographicCamera(-half, half, half, -half, 0.1, 200 * TILE);
     // Looking straight down: +Z must map to "down" on the map, so the camera's
@@ -56,17 +66,49 @@ export class Minimap {
   update(playerX: number, playerZ: number, yaw: number): void {
     this.lastPlayer = { x: playerX, z: playerZ, yaw };
 
-    const r = Math.ceil(REVEAL_RADIUS);
-    const px = Math.floor(playerX / TILE);
-    const pz = Math.floor(playerZ / TILE);
-    for (let dz = -r; dz <= r; dz++) {
-      for (let dx = -r; dx <= r; dx++) {
-        if (dx * dx + dz * dz > REVEAL_RADIUS * REVEAL_RADIUS) continue;
-        this.revealed.add(`${px + dx},${pz + dz}`);
-      }
-    }
+    this.revealVisible(Math.floor(playerX / TILE), Math.floor(playerZ / TILE));
 
     this.drawOverlay(playerX, playerZ, yaw);
+  }
+
+  /**
+   * Reveal only what the player can actually see from where they stand: the
+   * current passage, spreading through open tiles and stopping at walls.
+   *
+   * A plain radius would punch through walls and expose corridors the player
+   * has never walked, which gives away the maze. This walks the walkable graph
+   * instead, so a wall one tile away hides everything behind it.
+   */
+  private revealVisible(px: number, pz: number): void {
+    const start = `${px},${pz}`;
+    // Standing inside a wall (mid-teleport, spawn nudge): reveal just here.
+    if (!this.walkable.has(start)) {
+      this.revealed.add(start);
+      return;
+    }
+
+    const seen = new Set([start]);
+    let frontier = [{ x: px, z: pz, d: 0 }];
+    this.revealed.add(start);
+
+    while (frontier.length) {
+      const next: typeof frontier = [];
+      for (const cur of frontier) {
+        if (cur.d >= REVEAL_RADIUS) continue;
+        for (const [dx, dz] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+          const nx = cur.x + dx;
+          const nz = cur.z + dz;
+          const k = `${nx},${nz}`;
+          if (seen.has(k)) continue;
+          seen.add(k);
+          // Walls are drawn as seen (you can see the wall facing you) but the
+          // spread stops there, so nothing behind them is exposed.
+          this.revealed.add(k);
+          if (this.walkable.has(k)) next.push({ x: nx, z: nz, d: cur.d + 1 });
+        }
+      }
+      frontier = next;
+    }
   }
 
   /**

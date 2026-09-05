@@ -51,15 +51,24 @@ export class PlayerController {
     return this.solid.has(`${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`);
   }
 
-  /** Does the player's capsule (approximated by an AABB) intersect anything? */
+  /**
+   * Does the player's AABB overlap any solid voxel?
+   *
+   * A voxel at index i spans [i, i+1). The box spans [c-R, c+R), so the last
+   * overlapped index is ceil(c+R)-1, NOT floor(c+R): when the box edge lands
+   * exactly on a voxel boundary it touches without penetrating. Using floor on
+   * the max edge made the box effectively one voxel wider on the low side,
+   * which blocked movement asymmetrically (walls felt solid strafing one way
+   * and half a voxel away strafing the other).
+   */
   private collides(pos: THREE.Vector3): boolean {
     const minX = Math.floor(pos.x - PLAYER_RADIUS);
-    const maxX = Math.floor(pos.x + PLAYER_RADIUS);
+    const maxX = Math.ceil(pos.x + PLAYER_RADIUS) - 1;
     const minZ = Math.floor(pos.z - PLAYER_RADIUS);
-    const maxZ = Math.floor(pos.z + PLAYER_RADIUS);
+    const maxZ = Math.ceil(pos.z + PLAYER_RADIUS) - 1;
     // pos.y is the player's feet.
     const minY = Math.floor(pos.y);
-    const maxY = Math.floor(pos.y + PLAYER_HEIGHT - 0.01);
+    const maxY = Math.ceil(pos.y + PLAYER_HEIGHT) - 1;
 
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
@@ -99,17 +108,30 @@ export class PlayerController {
     // --- integrate with per-axis collision resolution ---
     const pos = s.position;
 
+    /**
+     * Move one axis, undoing it entirely on contact.
+     *
+     * Large steps are split into sub-steps smaller than the player's radius:
+     * a single long step could otherwise start and end in open space while
+     * passing straight through a wall (tunnelling), which is what makes a fast
+     * strafe slip through geometry on a slow frame.
+     */
     const tryAxis = (axis: 'x' | 'y' | 'z', delta: number) => {
       if (delta === 0) return;
-      const before = pos[axis];
-      pos[axis] = before + delta;
-      if (this.collides(pos)) {
-        pos[axis] = before;
-        if (axis === 'y') {
-          if (delta < 0) s.onGround = true;
-          s.velocity.y = 0;
-        } else {
-          s.velocity[axis] = 0;
+      const steps = Math.max(1, Math.ceil(Math.abs(delta) / (PLAYER_RADIUS * 0.5)));
+      const step = delta / steps;
+      for (let i = 0; i < steps; i++) {
+        const before = pos[axis];
+        pos[axis] = before + step;
+        if (this.collides(pos)) {
+          pos[axis] = before;
+          if (axis === 'y') {
+            if (step < 0) s.onGround = true;
+            s.velocity.y = 0;
+          } else {
+            s.velocity[axis] = 0;
+          }
+          return;
         }
       }
     };
