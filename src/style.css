@@ -536,6 +536,12 @@ button.primary:hover {
   text-align: left;
 }
 
+/* Shown when this is the only relay found so far. */
+.tp-empty {
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
 /* Small screens: shrink the HUD chrome so the view stays playable. */
 @media (max-width: 30rem) {
   .hud-top-left {

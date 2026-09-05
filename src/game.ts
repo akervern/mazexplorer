@@ -157,7 +157,7 @@ export class Game {
     this.minimap = new Minimap(this.world, this.hud.createMinimapContainer());
     this.compass = new Compass(this.world, this.inventory);
     this.hud.renderInventory(this.inventory);
-    this.hud.setZoneName(startZone.style.name);
+    this.hud.setZoneName(this.zoneLabel(startZone));
     this.hud.onTeleport = (uid) => this.teleportTo(uid);
 
     this.mutator = {
@@ -185,6 +185,17 @@ export class Game {
   /** Whether pointer lock has ever been granted for this game. */
   get hasHadPointerLock(): boolean {
     return this.keyboard.everLocked;
+  }
+
+
+  /**
+   * What the HUD calls a zone. Biome names are deliberately never shown — the
+   * mood on screen is the reveal — so a biome reads as its teleporter's
+   * positional label ("Secteur 2") and a corridor as a neutral "Passage".
+   */
+  private zoneLabel(zone: Zone): string {
+    if (zone.kind !== 'biome') return 'Passage';
+    return this.world.teleporters.find((t) => t.zoneId === zone.id)?.label ?? 'Secteur';
   }
 
   private zoneOf(id: string): Zone {
@@ -359,7 +370,7 @@ export class Game {
     this.fromStyle = this.targetStyle;
     this.targetStyle = zone.style;
     this.blendT = 0;
-    this.hud.setZoneName(zone.style.name);
+    this.hud.setZoneName(this.zoneLabel(zone));
     this.applyWeather(zone.style);
 
     // Arriving in a biome reveals its teleporter.
@@ -547,7 +558,7 @@ export class Game {
     this.fromStyle = this.targetStyle;
     this.targetStyle = zone.style;
     this.blendT = 0;
-    this.hud.setZoneName(zone.style.name);
+    this.hud.setZoneName(this.zoneLabel(zone));
     this.applyWeather(zone.style);
     this.hud.toast(`Téléporté : ${tp.label}`);
     this.keyboard.requestLock();

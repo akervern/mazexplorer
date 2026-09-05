@@ -517,6 +517,10 @@ function pickNearTile(
 /**
  * Signposts: at every zone entry, plus at each blocked passage. Text derives
  * from the mechanism registry, so a new mechanism gets hints for free.
+ *
+ * Biome names never appear here: a signpost describes the place through its
+ * blurb and points the way, but naming the biome — this one or the next —
+ * would announce what the player is meant to walk into and discover.
  */
 function placeSignposts(world: World, root: Rng, taken: Set<string>): void {
   const rng = root.fork('signposts');
@@ -526,12 +530,15 @@ function placeSignposts(world: World, root: Rng, taken: Set<string>): void {
     const nextZone = world.zones[zi + 1];
     const lines: string[] = [];
 
-    if (zone.kind === 'biome') lines.push(`${zone.style.name} — ${zone.style.blurb ?? ''}`);
-    else lines.push(`Corridor vers ${nextZone ? nextZone.style.name : 'la sortie'}.`);
+    if (zone.kind === 'biome') {
+      if (zone.style.blurb) lines.push(zone.style.blurb);
+    } else {
+      lines.push(nextZone ? 'Un corridor. Il mène ailleurs.' : 'Un corridor vers la sortie.');
+    }
 
     lines.push(
       nextZone
-        ? `Direction : plein est, vers ${nextZone.style.name}.`
+        ? 'Direction : plein est.'
         : 'Direction : plein est, vers la sortie finale.',
     );
 
@@ -546,7 +553,7 @@ function placeSignposts(world: World, root: Rng, taken: Set<string>): void {
       uid: `sign-${zone.id}-entry`,
       zoneId: zone.id,
       tile: neighbourOf(zone, zone.entry, rng, taken),
-      title: zone.kind === 'biome' ? zone.style.name : 'Corridor',
+      title: zone.kind === 'biome' ? 'Panneau' : 'Corridor',
       lines,
     });
 
@@ -601,16 +608,24 @@ function neighbourOf(zone: Zone, tile: Tile, rng: Rng, taken?: Set<string>): Til
   return pick;
 }
 
-/** One teleporter at each biome entry; unlocked as the player arrives. */
+/**
+ * One teleporter at each biome entry; unlocked as the player arrives.
+ *
+ * Labels are positional ("Secteur 2"), never the biome name: naming the biome
+ * would spoil what is ahead, and the number matches the west-to-east order the
+ * player actually walks, so it stays a usable landmark.
+ */
 function placeTeleporters(world: World, root: Rng, taken: Set<string>): void {
   const rng = root.fork('teleporters');
+  let n = 0;
   for (const zone of world.zones) {
     if (zone.kind !== 'biome') continue;
+    n++;
     world.teleporters.push({
       uid: `tp-${zone.id}`,
       zoneId: zone.id,
       tile: neighbourOf(zone, zone.entry, rng, taken),
-      label: zone.style.name,
+      label: `Secteur ${n}`,
       discovered: false,
     });
   }

@@ -179,22 +179,37 @@ export class Hud {
       </div>`;
   }
 
-  /** Teleporter destination picker. */
+  /**
+   * Teleporter destination picker.
+   *
+   * With a single pad discovered there is nothing to pick, so the menu explains
+   * the network instead of showing a lone disabled button the player cannot
+   * make sense of.
+   */
   showTeleportMenu(options: TeleportOption[], current: string): void {
     this.popupEl.hidden = false;
-    const items = options
-      .map((o) => {
-        const isHere = o.zoneId === current;
-        return `<button class="tp-option" data-tp="${o.uid}" ${isHere ? 'disabled' : ''}>
-            ${escapeHtml(o.label)}${isHere ? ' — vous êtes ici' : ''}
-          </button>`;
-      })
-      .join('');
+    const elsewhere = options.filter((o) => o.zoneId !== current);
+    const here = options.find((o) => o.zoneId === current);
+    const hereName = here ? escapeHtml(here.label) : 'ce secteur';
+
+    const body = elsewhere.length
+      ? `<p>Réseau de téléportation — vous êtes à <strong>${hereName}</strong>.
+           Choisis une destination déjà découverte :</p>
+         <div class="tp-list">${elsewhere
+           .map(
+             (o) =>
+               `<button class="tp-option" data-tp="${o.uid}">${escapeHtml(o.label)}</button>`,
+           )
+           .join('')}</div>`
+      : `<p>Réseau de téléportation — vous êtes à <strong>${hereName}</strong>.</p>
+         <p class="tp-empty">C'est le seul relais activé pour l'instant. Chaque nouveau
+           secteur atteint ajoute son relais au réseau ; reviens ici pour voyager
+           entre eux d'un pas.</p>`;
+
     this.popupEl.innerHTML = `
       <div class="popup">
         <h2>Téléporteur</h2>
-        <p>Choisis une destination déjà découverte :</p>
-        <div class="tp-list">${items || '<p>Aucune autre destination connue.</p>'}</div>
+        ${body}
         <div class="popup-footer">Échap pour annuler</div>
       </div>`;
 

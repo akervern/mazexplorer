@@ -18,6 +18,12 @@ To narrow it, edit the `SIZES` / `SEEDS` arrays at the top of
 Product text (signposts, HUD, menus, item names, mechanism hints) is in French.
 Code, comments and identifiers are in English.
 
+**Biome names are never shown to the player.** `ZoneStyle.name` is a debug/dev
+label; the mood on screen is the reveal. The HUD, signposts and teleporters all
+use the positional label instead (`Secteur N`, numbered west to east, from
+`Game.zoneLabel()` and the teleporter's own `label`). Signpost blurbs describe
+a place without naming it, and never name the *next* zone.
+
 ## Determinism is the core invariant
 
 Seed + config ⇒ byte-identical world. `Math.random()` must never appear in
