@@ -37,12 +37,15 @@ export class PlayerController {
     start: { x: number; y: number; z: number },
   ) {
     this.state = {
-      position: new THREE.Vector3(start.x, start.y, start.z),
+      position: new THREE.Vector3(),
       velocity: new THREE.Vector3(),
       yaw: 0,
       pitch: 0,
       onGround: false,
     };
+    // Goes through the same nudge as a teleport, so the initial spawn can
+    // never place the camera inside geometry either.
+    this.state.position.copy(this.findFreeSpot(start.x, start.y, start.z));
     this.lastSafe.copy(this.state.position);
   }
 
@@ -160,11 +163,41 @@ export class PlayerController {
     }
   }
 
-  /** Instantly move the player (teleporters). */
+  /**
+   * Instantly move the player (spawn, teleporters, restored saves).
+   *
+   * The destination is nudged out of any solid it lands in: a stored position
+   * can become invalid when the world geometry changes under it, and dropping
+   * the camera inside a wall is the visible symptom.
+   */
   teleportTo(x: number, y: number, z: number): void {
-    this.state.position.set(x, y, z);
+    const free = this.findFreeSpot(x, y, z);
+    this.state.position.copy(free);
     this.state.velocity.set(0, 0, 0);
-    this.lastSafe.set(x, y, z);
+    this.lastSafe.copy(free);
+  }
+
+  /**
+   * Nearest non-colliding position to (x,y,z), searched outward in rings.
+   * Returns the input untouched when it is already free.
+   */
+  private findFreeSpot(x: number, y: number, z: number): THREE.Vector3 {
+    const probe = new THREE.Vector3(x, y, z);
+    if (!this.collides(probe)) return probe;
+
+    // Rise first (the common case is standing where a floor slab now sits),
+    // then spiral outward on the horizontal plane.
+    for (let r = 1; r <= 6; r++) {
+      for (const dy of [0, 1, 2, -1]) {
+        for (let a = 0; a < 12; a++) {
+          const ang = (a / 12) * Math.PI * 2;
+          probe.set(x + Math.cos(ang) * r, y + dy, z + Math.sin(ang) * r);
+          if (!this.collides(probe)) return probe;
+        }
+      }
+    }
+    // Nothing free nearby: lift clear of the world rather than trap the player.
+    return new THREE.Vector3(x, y + 4, z);
   }
 
   /** Apply the player's transform to the camera. */

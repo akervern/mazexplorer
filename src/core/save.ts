@@ -6,9 +6,15 @@
  * regenerated from the seed, so saves stay a few kilobytes.
  */
 
+import { TILE } from './types.js';
 import type { GameConfig } from './types.js';
 
-const KEY = 'mazexplorer:save:v1';
+/**
+ * Bump this whenever a change makes old saves geometrically invalid — the
+ * TILE scale in particular, since a stored position is in world units and a
+ * rescale drops it inside a wall.
+ */
+const KEY = `mazexplorer:save:v2:t${TILE}`;
 
 export interface SavedProgress {
   config: GameConfig;
