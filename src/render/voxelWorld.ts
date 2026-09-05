@@ -46,8 +46,12 @@ class VoxelBatcher {
       this.batches.set(id, b);
     }
     const m = new THREE.Matrix4();
+    // BoxGeometry is centred on its origin, so a unit cube placed at index i
+    // would span [i-0.5, i+0.5]. Collision and tileToWorld both treat voxel i
+    // as spanning [i, i+1), so shift by half a block to make the rendered
+    // world line up with the grid everything else uses.
     m.compose(
-      new THREE.Vector3(x, y, z),
+      new THREE.Vector3(x + 0.5, y + 0.5, z + 0.5),
       new THREE.Quaternion(),
       new THREE.Vector3(scale, scale, scale),
     );
@@ -240,7 +244,7 @@ function buildBlocker(
     for (let oz = 0; oz < TILE; oz++) {
       for (let y = 0; y < height; y++) {
         const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(bx + ox, y, bz + oz);
+        mesh.position.set(bx + ox + 0.5, y + 0.5, bz + oz + 0.5);
         mesh.castShadow = shadows;
         mesh.receiveShadow = true;
         out.push(mesh);
@@ -296,7 +300,7 @@ export function placeBridgeTile(
   for (let ox = 0; ox < TILE; ox++) {
     for (let oz = 0; oz < TILE; oz++) {
       const mesh = new THREE.Mesh(BRIDGE_GEOMETRY, material);
-      mesh.position.set(bx + ox, -1, bz + oz);
+      mesh.position.set(bx + ox + 0.5, -1 + 0.5, bz + oz + 0.5);
       mesh.castShadow = shadows;
       mesh.receiveShadow = true;
       group.add(mesh);
