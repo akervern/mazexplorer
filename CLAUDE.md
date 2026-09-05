@@ -67,6 +67,20 @@ with a gutter) → `linkZones()` carves each exit east, each next entry west, an
 fills the gutter as an **L** (a straight interpolation leaves diagonal,
 non-walkable gaps) → `planProgression()` → signposts → teleporters.
 
+Biome mazes come from **randomized Kruskal** (`maze.ts`), not a recursive
+backtracker: Kruskal merges many small clumps, so corridors stay short and
+junctions are frequent — a backtracker grows one long snake with few branch
+points. Two knobs shape the texture, and they pull against each other:
+
+- `loop` (0.15) knocks out extra walls between already-connected cells. This is
+  what makes crossroads; it also destroys chokepoints.
+- `braid` (0.08) reopens dead ends. Kept low **because dead ends are wanted** —
+  `loop` already provides the shortcuts braiding used to be responsible for.
+
+Raising `loop` much past ~0.2 risks leaving no cut vertex on an entry→exit path,
+and `placeBlockingTile()` needs one to hang a gate on — `npm test` fails loudly
+when that happens, so re-run it after touching either knob.
+
 `planProgression()` assigns exactly one mechanism per biome zone, drawn from a
 pool chosen by the zone's role:
 

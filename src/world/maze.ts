@@ -3,8 +3,13 @@
  *
  * A maze of `cols` x `rows` cells is expanded into a voxel grid of
  * (cols*2+1) x (rows*2+1): odd coordinates are cells, even ones are walls.
- * Recursive backtracker (depth-first) gives long winding corridors and plenty
- * of dead ends — good for 20-30 min of exploration.
+ *
+ * Randomized Kruskal over the cell edges: edges are shuffled and each one is
+ * carved when it joins two different components. Unlike a recursive
+ * backtracker — which grows one long snake and yields few, very deep dead ends
+ * — Kruskal grows many small clumps that merge, so corridors stay short and
+ * the maze is dense in T- and 4-way junctions with lots of shallow dead ends.
+ * That is the texture we want: constant choices, quick failures.
  */
 
 import type { Rng } from '../core/rng.js';
@@ -22,44 +27,96 @@ export const CELL = { WALL: 0, FLOOR: 1 } as const;
 export interface MazeOptions {
   /** Fraction of dead ends reopened into loops (0 = perfect maze). */
   braid?: number;
+  /**
+   * Fraction of the *remaining* walls between already-connected cells that are
+   * knocked out, on top of the spanning tree. This is what turns corridors into
+   * crossroads: 0 is a perfect maze, ~0.15 gives a junction-heavy weave.
+   * Kept modest on purpose — every extra loop removes chokepoints, and
+   * `placeBlockingTile()` needs a cut vertex on the entry->exit path to hang a
+   * gate on.
+   */
+  loop?: number;
+}
+
+/** Union-find over cells, path-halving + union by size. */
+class DisjointSet {
+  private readonly parent: Int32Array;
+  private readonly size: Uint32Array;
+
+  constructor(n: number) {
+    this.parent = new Int32Array(n);
+    this.size = new Uint32Array(n).fill(1);
+    for (let i = 0; i < n; i++) this.parent[i] = i;
+  }
+
+  find(a: number): number {
+    let x = a;
+    while (this.parent[x] !== x) {
+      this.parent[x] = this.parent[this.parent[x]];
+      x = this.parent[x];
+    }
+    return x;
+  }
+
+  /** Joins a and b; false when they were already connected. */
+  union(a: number, b: number): boolean {
+    let ra = this.find(a);
+    let rb = this.find(b);
+    if (ra === rb) return false;
+    if (this.size[ra] < this.size[rb]) [ra, rb] = [rb, ra];
+    this.parent[rb] = ra;
+    this.size[ra] += this.size[rb];
+    return true;
+  }
 }
 
 export function generateMaze(rng: Rng, cols: number, rows: number, opts: MazeOptions = {}): Maze {
-  const braid = opts.braid ?? 0.12;
+  const braid = opts.braid ?? 0.08;
+  const loop = opts.loop ?? 0.15;
   const w = cols * 2 + 1;
   const h = rows * 2 + 1;
   const grid = new Uint8Array(w * h); // all walls
-
-  const visited = new Uint8Array(cols * rows);
   const at = (x: number, y: number) => y * w + x;
 
-  const start: Tile = { x: rng.int(0, cols - 1), y: rng.int(0, rows - 1) };
-  const stack: Tile[] = [start];
-  visited[start.y * cols + start.x] = 1;
-  grid[at(start.x * 2 + 1, start.y * 2 + 1)] = CELL.FLOOR;
-
-  while (stack.length) {
-    const cur = stack[stack.length - 1];
-    const options: { nx: number; ny: number; d: (typeof DIRS)[number] }[] = [];
-    for (const d of DIRS) {
-      const nx = cur.x + d.dx;
-      const ny = cur.y + d.dy;
-      if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
-      if (visited[ny * cols + nx]) continue;
-      options.push({ nx, ny, d });
-    }
-    if (!options.length) {
-      stack.pop();
-      continue;
-    }
-    const { nx, ny, d } = rng.pick(options);
-    visited[ny * cols + nx] = 1;
-    grid[at(nx * 2 + 1, ny * 2 + 1)] = CELL.FLOOR;
-    grid[at(cur.x * 2 + 1 + d.dx, cur.y * 2 + 1 + d.dy)] = CELL.FLOOR;
-    stack.push({ x: nx, y: ny });
+  // Every cell is floor from the start; Kruskal only decides which walls fall.
+  for (let cy = 0; cy < rows; cy++) {
+    for (let cx = 0; cx < cols; cx++) grid[at(cx * 2 + 1, cy * 2 + 1)] = CELL.FLOOR;
   }
 
-  // Braiding: reopen a few dead ends into loops so backtracking is less punishing.
+  // Candidate edges: east and south neighbours of each cell, so each interior
+  // wall is listed exactly once.
+  const edges: { a: number; b: number; wx: number; wy: number }[] = [];
+  for (let cy = 0; cy < rows; cy++) {
+    for (let cx = 0; cx < cols; cx++) {
+      const a = cy * cols + cx;
+      if (cx + 1 < cols) {
+        edges.push({ a, b: a + 1, wx: cx * 2 + 2, wy: cy * 2 + 1 });
+      }
+      if (cy + 1 < rows) {
+        edges.push({ a, b: a + cols, wx: cx * 2 + 1, wy: cy * 2 + 2 });
+      }
+    }
+  }
+
+  const order = rng.shuffle(edges);
+  const set = new DisjointSet(cols * rows);
+  const spare: typeof edges = [];
+
+  for (const e of order) {
+    if (set.union(e.a, e.b)) grid[at(e.wx, e.wy)] = CELL.FLOOR;
+    else spare.push(e);
+  }
+
+  // Extra openings between already-connected cells: these are the crossroads.
+  if (loop > 0) {
+    for (const e of rng.sample(spare, Math.floor(spare.length * loop))) {
+      grid[at(e.wx, e.wy)] = CELL.FLOOR;
+    }
+  }
+
+  // Braiding: reopen a few dead ends into loops so backtracking is less
+  // punishing. Kept low — dead ends are wanted here, and `loop` above already
+  // provides the shortcuts that braiding used to be responsible for.
   if (braid > 0) {
     const deadEnds = findDeadEnds(grid, w, h);
     const toBraid = rng.sample(deadEnds, Math.floor(deadEnds.length * braid));

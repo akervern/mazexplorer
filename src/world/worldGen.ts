@@ -121,7 +121,7 @@ function buildBiomeZone(
 ): Zone {
   const biome = BIOMES[biomeId];
   const cells = Math.max(4, Math.round(preset.cells * (biome.mazeScale ?? 1)));
-  const maze = generateMaze(rng.fork('maze'), cells, cells, { braid: 0.12 });
+  const maze = generateMaze(rng.fork('maze'), cells, cells, { braid: 0.08, loop: 0.15 });
   const tiles = walkableTiles(maze);
 
   return {
