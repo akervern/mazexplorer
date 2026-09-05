@@ -21,6 +21,7 @@ export class Hud {
   private readonly popupEl: HTMLElement;
   private readonly compassEl: HTMLElement;
   private readonly needleEl: HTMLElement;
+  private readonly northEl: HTMLElement;
   private readonly compassLabel: HTMLElement;
   private readonly timerEl: HTMLElement;
   private readonly zoneEl: HTMLElement;
@@ -40,7 +41,10 @@ export class Hud {
       </div>
       <div class="crosshair"></div>
       <div class="compass" data-compass hidden>
-        <div class="compass-dial"><div class="compass-needle" data-needle></div></div>
+        <div class="compass-dial">
+          <div class="compass-north" data-north></div>
+          <div class="compass-needle" data-needle></div>
+        </div>
         <div class="compass-label" data-compass-label></div>
       </div>
       <div class="inventory" data-inventory></div>
@@ -63,6 +67,7 @@ export class Hud {
     this.popupEl = q('[data-popup]');
     this.compassEl = q('[data-compass]');
     this.needleEl = q('[data-needle]');
+    this.northEl = q('[data-north]');
     this.compassLabel = q('[data-compass-label]');
     this.timerEl = q('[data-timer]');
     this.zoneEl = q('[data-zone]');
@@ -122,6 +127,9 @@ export class Hud {
     }
     this.compassEl.hidden = false;
     this.compassLabel.textContent = reading.label;
+    // North sits at world yaw 0 (-Z). Counter-rotating by the player's yaw
+    // keeps the letter pointing at true north as they turn.
+    this.northEl.style.transform = `rotate(${-playerYaw}rad)`;
     if (reading.bearing !== null) {
       // Rotate into view space so the needle points relative to where we look.
       const rel = reading.bearing - playerYaw;

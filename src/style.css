@@ -595,3 +595,23 @@ button.primary:hover {
   color: var(--muted);
   font-size: 0.85em;
 }
+
+/* Fixed north marker on the compass dial: rotates with the view so the letter
+   always sits over true north (world -Z). */
+.compass-north {
+  position: absolute;
+  inset: 0;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.compass-north::before {
+  content: 'N';
+  position: absolute;
+  top: 0.14rem;
+  left: 50%;
+  transform: translateX(-50%);
+}
