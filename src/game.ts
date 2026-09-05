@@ -190,11 +190,10 @@ export class Game {
 
   /**
    * What the HUD calls a zone. Biome names are deliberately never shown — the
-   * mood on screen is the reveal — so a biome reads as its teleporter's
-   * positional label ("Secteur 2") and a corridor as a neutral "Passage".
+   * mood on screen is the reveal — so a zone reads as its teleporter's
+   * positional label ("Secteur 2").
    */
   private zoneLabel(zone: Zone): string {
-    if (zone.kind !== 'biome') return 'Passage';
     return this.world.teleporters.find((t) => t.zoneId === zone.id)?.label ?? 'Secteur';
   }
 

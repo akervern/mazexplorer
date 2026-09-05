@@ -3,9 +3,9 @@
  * signposts, teleporters. Everything derives from the seed via forked rngs so
  * that adding a step in one area does not reshuffle another.
  *
- * Layout: each zone (biome or corridor) is its own maze grid in local
- * coordinates. Zones sit side by side along the global X axis with a gutter,
- * giving the voxel builder and the minimap one shared coordinate space.
+ * Layout: each zone is its own maze grid in local coordinates. Zones sit side
+ * by side along the global X axis with a gutter, giving the voxel builder and
+ * the minimap one shared coordinate space.
  */
 
 import { Rng } from '../core/rng.js';
@@ -20,7 +20,7 @@ import type {
   World,
   Zone,
 } from '../core/types.js';
-import { BIOMES, BIOME_POOL, CORRIDOR_STYLE, ENTRY_BIOME } from './biomes.js';
+import { BIOMES, BIOME_POOL, ENTRY_BIOME } from './biomes.js';
 import { ITEMS } from './items.js';
 import type { ItemRole, MechanismPlan, PlanContext } from './unlockMechanisms.js';
 import { MECHANISM_TYPES, mechanismHint, pickMechanismType } from './unlockMechanisms.js';
@@ -30,15 +30,14 @@ export interface SizePreset {
   label: string;
   biomes: number;
   cells: number;
-  corridor: number;
   minutes: string;
 }
 
 /** Size presets: biome count and maze dimensions. Tuned for ~20-30 min at medium. */
 export const SIZE_PRESETS: Record<SizeKey, SizePreset> = {
-  small: { label: 'Petit', biomes: 3, cells: 7, corridor: 9, minutes: '10-15' },
-  medium: { label: 'Moyen', biomes: 5, cells: 10, corridor: 13, minutes: '20-30' },
-  large: { label: 'Grand', biomes: 6, cells: 13, corridor: 17, minutes: '35-50' },
+  small: { label: 'Petit', biomes: 3, cells: 7, minutes: '10-15' },
+  medium: { label: 'Moyen', biomes: 5, cells: 10, minutes: '20-30' },
+  large: { label: 'Grand', biomes: 6, cells: 13, minutes: '35-50' },
 };
 
 const ZONE_GUTTER = 6;
@@ -62,16 +61,11 @@ export function generateWorld(config: GameConfig): World {
   const pool = graphRng.shuffle(BIOME_POOL).slice(0, biomeCount - 1);
   const biomeOrder = [ENTRY_BIOME, ...pool];
 
-  // --- 2. Zones (biomes interleaved with corridors) --------------------
+  // --- 2. Zones (biomes laid side by side, joined by the gutter) --------
   const zones: Zone[] = [];
   let cursorX = 0;
 
   biomeOrder.forEach((biomeId, i) => {
-    if (i > 0) {
-      const corridor = buildCorridorZone(root.fork(`corridor:${i}`), i, preset, cursorX);
-      zones.push(corridor);
-      cursorX += corridor.w + ZONE_GUTTER;
-    }
     const zone = buildBiomeZone(root.fork(`biome:${biomeId}:${i}`), biomeId, i, preset, cursorX);
     zones.push(zone);
     cursorX += zone.w + ZONE_GUTTER;
@@ -81,7 +75,6 @@ export function generateWorld(config: GameConfig): World {
   // gutter between them so the world is one continuous walkable space.
   linkZones(zones);
 
-  const biomeZones = zones.filter((z) => z.kind === 'biome');
   const last = zones[zones.length - 1];
 
   const world: World = {
@@ -89,15 +82,14 @@ export function generateWorld(config: GameConfig): World {
     size: config.size,
     biomeCount,
     zones,
-    biomeZones,
     mechanisms: [],
     pickups: [],
     signposts: [],
     teleporters: [],
     grantedByZone: new Map(),
     width: cursorX,
-    start: biomeZones[0].entry,
-    startZoneId: biomeZones[0].id,
+    start: zones[0].entry,
+    startZoneId: zones[0].id,
     exit: { zoneId: last.id, tile: last.exit },
   };
 
@@ -126,7 +118,6 @@ function buildBiomeZone(
 
   return {
     id: `biome-${index}-${biomeId}`,
-    kind: 'biome',
     index,
     biomeId,
     style: biome,
@@ -140,44 +131,6 @@ function buildBiomeZone(
     exit: pickEdgeTile(tiles, maze.h, 'east'),
     tiles,
     deadEnds: findDeadEnds(maze.grid, maze.w, maze.h),
-    links: [],
-  };
-}
-
-function buildCorridorZone(rng: Rng, index: number, preset: SizePreset, originX: number): Zone {
-  // A corridor is a long, mostly-straight tunnel with a few seeded alcoves.
-  const len = preset.corridor;
-  const w = len * 2 + 1;
-  const h = 5;
-  const grid = new Uint8Array(w * h);
-  const midY = 2;
-  for (let x = 1; x < w - 1; x++) grid[midY * w + x] = CELL.FLOOR;
-
-  const alcoves = rng.sample(
-    Array.from({ length: len - 2 }, (_, i) => i + 1),
-    Math.max(1, Math.floor(len / 5)),
-  );
-  for (const a of alcoves) {
-    const dy = rng.bool() ? -1 : 1;
-    grid[(midY + dy) * w + (a * 2 + 1)] = CELL.FLOOR;
-  }
-
-  const maze = { w, h, grid, cols: len, rows: 1 };
-  return {
-    id: `corridor-${index}`,
-    kind: 'corridor',
-    index,
-    biomeId: 'corridor',
-    style: CORRIDOR_STYLE,
-    maze,
-    w,
-    h,
-    originX,
-    originZ: 0,
-    entry: { x: 1, y: midY },
-    exit: { x: w - 2, y: midY },
-    tiles: walkableTiles(maze),
-    deadEnds: [],
     links: [],
   };
 }
@@ -257,23 +210,23 @@ function planProgression(world: World, root: Rng): void {
     granted.set(zoneId, [...(granted.get(zoneId) ?? []), itemId]);
   };
 
-  const indices = world.biomeZones.map((_, i) => i);
+  const indices = world.zones.map((_, i) => i);
   // Biomes that reward exhaustive exploration.
   const deepIdx = new Set(
     rng.sample(
       indices.filter((i) => i > 0),
-      Math.min(2, Math.max(1, Math.floor(world.biomeZones.length / 3))),
+      Math.min(2, Math.max(1, Math.floor(world.zones.length / 3))),
     ),
   );
   // One transition using a tool fetched from an earlier biome.
   const crossIdx = new Set(
     rng.sample(
       indices.filter((i) => i >= 2 && !deepIdx.has(i)),
-      world.biomeZones.length >= 4 ? 1 : 0,
+      world.zones.length >= 4 ? 1 : 0,
     ),
   );
 
-  world.biomeZones.forEach((zone, i) => {
+  world.zones.forEach((zone, i) => {
     const zoneRng = rng.fork(`zone:${zone.id}`);
 
     let allowed: MechanismTypeId[];
@@ -320,7 +273,7 @@ function planProgression(world: World, root: Rng): void {
       target: { type: plan.target.type, tile: gateTile, zoneId: zone.id },
       data: plan.data ?? {},
       unlocked: false,
-      isFinal: i === world.biomeZones.length - 1,
+      isFinal: i === world.zones.length - 1,
     };
     // A chasm spans several tiles so the bridge has something to cross; the
     // extra tiles follow the corridor away from the entry.
@@ -357,7 +310,7 @@ function planProgression(world: World, root: Rng): void {
 
     // Cross-biome mechanisms plant their tool in an earlier biome instead.
     if (inst.data.crossBiome) {
-      const sourceZone = world.biomeZones[zoneRng.int(0, i - 1)];
+      const sourceZone = world.zones[zoneRng.int(0, i - 1)];
       const sourceGate = world.mechanisms.find((m) => m.zoneId === sourceZone.id)?.target.tile;
       const sourceReachable = sourceGate
         ? tilesBeforeGate(sourceZone, sourceGate)
@@ -383,7 +336,7 @@ function planProgression(world: World, root: Rng): void {
   });
 
   // The magic compass: early, in the first biome, a few steps from the entry.
-  const first = world.biomeZones[0];
+  const first = world.zones[0];
   const compassRng = root.fork('compass');
   const compassTile = pickNearTile(first, compassRng, first.entry, 3, 8, isFree);
   claim(first.id, compassTile);
@@ -530,11 +483,7 @@ function placeSignposts(world: World, root: Rng, taken: Set<string>): void {
     const nextZone = world.zones[zi + 1];
     const lines: string[] = [];
 
-    if (zone.kind === 'biome') {
-      if (zone.style.blurb) lines.push(zone.style.blurb);
-    } else {
-      lines.push(nextZone ? 'Un corridor. Il mène ailleurs.' : 'Un corridor vers la sortie.');
-    }
+    if (zone.style.blurb) lines.push(zone.style.blurb);
 
     lines.push(
       nextZone
@@ -553,7 +502,7 @@ function placeSignposts(world: World, root: Rng, taken: Set<string>): void {
       uid: `sign-${zone.id}-entry`,
       zoneId: zone.id,
       tile: neighbourOf(zone, zone.entry, rng, taken),
-      title: zone.kind === 'biome' ? 'Panneau' : 'Corridor',
+      title: 'Panneau',
       lines,
     });
 
@@ -619,7 +568,6 @@ function placeTeleporters(world: World, root: Rng, taken: Set<string>): void {
   const rng = root.fork('teleporters');
   let n = 0;
   for (const zone of world.zones) {
-    if (zone.kind !== 'biome') continue;
     n++;
     world.teleporters.push({
       uid: `tp-${zone.id}`,

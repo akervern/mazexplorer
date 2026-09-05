@@ -111,17 +111,3 @@ export const BIOMES: Record<string, ZoneStyle> = {
 export const ENTRY_BIOME = 'forest';
 export const BIOME_POOL: string[] = ['desert', 'snow', 'cave', 'swamp', 'ruins'];
 
-/** The corridors between biomes get their own neutral-stone look. */
-export const CORRIDOR_STYLE: ZoneStyle = {
-  id: 'corridor',
-  name: 'Corridor',
-  sky: 0x2a2d38,
-  fog: { color: 0x23262f, near: 16, far: 52 },
-  light: { sun: 0.4, ambient: 0.42, sunColor: 0xc0c8d8, ambientColor: 0x5a6274 },
-  blocks: {
-    floor: { tex: 'tiles', color: 0x6b6b73 },
-    wall: { tex: 'bricks', color: 0x55555c },
-    accent: { tex: 'stone', color: 0x7a7a84 },
-  },
-  weather: null,
-};

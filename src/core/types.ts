@@ -56,11 +56,8 @@ export interface Maze {
   rows: number;
 }
 
-export type ZoneKind = 'biome' | 'corridor';
-
 export interface Zone {
   id: string;
-  kind: ZoneKind;
   index: number;
   biomeId: string;
   style: ZoneStyle;
@@ -165,7 +162,6 @@ export interface World {
   size: SizeKey;
   biomeCount: number;
   zones: Zone[];
-  biomeZones: Zone[];
   mechanisms: Mechanism[];
   pickups: Pickup[];
   signposts: Signpost[];

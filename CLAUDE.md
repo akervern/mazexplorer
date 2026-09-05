@@ -68,9 +68,9 @@ are dropped rather than spawning the camera inside a wall.
 ## Generation pipeline (`world/worldGen.ts`)
 
 `generateWorld(config)`:
-biome order → zones (biomes interleaved with corridors, laid side by side on X
-with a gutter) → `linkZones()` carves each exit east, each next entry west, and
-fills the gutter as an **L** (a straight interpolation leaves diagonal,
+biome order → zones (one maze per biome, laid side by side on X with a gutter;
+there are no corridor zones — walking one was dead time) → `linkZones()` carves
+each exit east, each next entry west, and fills the gutter as an **L** (a straight interpolation leaves diagonal,
 non-walkable gaps) → `planProgression()` → signposts → teleporters.
 
 Biome mazes come from **randomized Kruskal** (`maze.ts`), not a recursive
