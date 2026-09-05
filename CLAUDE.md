@@ -143,12 +143,29 @@ minimap or UI, run `npm run dev` and look at it before reporting done.
   `getMoveVector()` / `getLookDelta()` / `drainActions()`. Pointer Lock is one
   source, not a dependency — adding a touch joystick must not touch the
   controller or `game.ts`.
-- Voxels render as one `InstancedMesh` per (texture, tint) pair — never a mesh
-  per block. Textures are generated on a 2D canvas; the project ships zero
-  external assets.
+- Voxels render as one `InstancedMesh` per (texture, tint, variant, tint-step)
+  key — never a mesh per block. Textures are generated on a 2D canvas; the
+  project ships zero external assets.
+- Visual variety lives in `render/decor.ts` (see Environment variety below).
 - Saves hold only seed, config, progress uids and fog-of-war tiles; the world
   is regenerated from the seed. Storage failures are swallowed on purpose —
   progress is a convenience, never a requirement.
+
+## Environment variety
+
+Four cosmetic layers stop corridors reading as one repeated tile: texture
+**variants** (4 per name, picked per block), per-block **tint jitter**, wall
+**relief** (some tiles step up, plus accent bands and buttresses) and ground
+**props**. All live in `render/` — they never touch `solid`, walkability or a
+generation stream, so retuning them cannot shift an existing seed's world.
+
+Two colour rules, both learned from bugs: never use a palette **accent** raw on
+a large surface (a gold floor patch reads as a rendering bug — `weatheredTint()`
+pulls it back toward its surface), and never tint a **prop** from its own biome
+palette (a green tuft on green floor disappears — `propMaterial()` pushes it
+away from the floor's luminance).
+
+Details, tuning values and the draw-call budget: `.claude/docs/variety.md`.
 
 ## Maintaining this file
 
@@ -156,7 +173,8 @@ Update the affected section in the **same commit** as any change that
 invalidates it: `TILE` or the coordinate helpers, the collision bounds, the
 generation pipeline (step order, `fork()` usage, zone layout, loot-before-gate),
 a new or changed unlock mechanism and its pool in `planProgression()`, the
-invariants `npm test` covers, the npm commands, or the layer boundaries. A stale
+invariants `npm test` covers, the npm commands, the layer boundaries, or the
+variety layers in `render/decor.ts`. A stale
 CLAUDE.md is worse than none — it sends the next session after an architecture
 that no longer exists.
 
