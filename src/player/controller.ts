@@ -14,6 +14,9 @@ const GRAVITY = 26;
 const JUMP_SPEED = 8.2;
 const WALK_SPEED = 4.6;
 const SPRINT_SPEED = 7.0;
+/** Free-flight speeds (dev noclip). Fast enough to cross a zone in seconds. */
+const FLY_SPEED = 14;
+const FLY_SPRINT_SPEED = 34;
 const ACCEL = 14;
 const MAX_PITCH = Math.PI / 2 - 0.02;
 /** Below this the player has fallen off the world and gets nudged back. */
@@ -25,6 +28,8 @@ export interface PlayerState {
   yaw: number;
   pitch: number;
   onGround: boolean;
+  /** Dev noclip: free flight, walls and gravity ignored. */
+  noclip: boolean;
 }
 
 export class PlayerController {
@@ -42,6 +47,7 @@ export class PlayerController {
       yaw: 0,
       pitch: 0,
       onGround: false,
+      noclip: false,
     };
     // Goes through the same nudge as a teleport, so the initial spawn can
     // never place the camera inside geometry either.
@@ -90,6 +96,11 @@ export class PlayerController {
     const look = this.input.getLookDelta();
     s.yaw -= look.dx;
     s.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, s.pitch - look.dy));
+
+    if (s.noclip) {
+      this.updateFlight(dt);
+      return;
+    }
 
     // --- desired horizontal velocity ---
     const move = this.input.getMoveVector();
@@ -153,6 +164,55 @@ export class PlayerController {
     if (pos.y < VOID_Y) {
       pos.copy(this.lastSafe);
       s.velocity.set(0, 0, 0);
+    }
+  }
+
+  /**
+   * Free flight for the dev overlay: no gravity, no collision, and forward
+   * follows the *camera pitch* rather than the horizontal plane — looking down
+   * and pushing forward is how you get from a ceiling overview back into a
+   * corridor. Vertical keys (space / shift-space-free crouch) stay absolute so
+   * rising straight up never depends on where the camera points.
+   */
+  private updateFlight(dt: number): void {
+    const s = this.state;
+    const move = this.input.getMoveVector();
+    const speed = this.input.sprinting ? FLY_SPRINT_SPEED : FLY_SPEED;
+
+    const sin = Math.sin(s.yaw);
+    const cos = Math.cos(s.yaw);
+    const cosP = Math.cos(s.pitch);
+    const sinP = Math.sin(s.pitch);
+
+    // Forward is -Z at yaw 0; pitch tilts it out of the horizontal plane.
+    const wishX = (-sin * cosP * move.forward + cos * move.strafe) * speed;
+    const wishY = sinP * move.forward * speed;
+    const wishZ = (-cos * cosP * move.forward - sin * move.strafe) * speed;
+
+    const blend = 1 - Math.exp(-ACCEL * dt);
+    s.velocity.x += (wishX - s.velocity.x) * blend;
+    s.velocity.z += (wishZ - s.velocity.z) * blend;
+    s.velocity.y += (wishY + this.input.lift * speed - s.velocity.y) * blend;
+
+    s.position.addScaledVector(s.velocity, dt);
+    s.onGround = false;
+  }
+
+  /**
+   * Toggle noclip. Leaving it drops the player wherever they are — including
+   * inside geometry after flying through a wall — so the exit runs the same
+   * nudge a teleport does, and zeroes the velocity so flight momentum does not
+   * become a fall.
+   */
+  setNoclip(on: boolean): void {
+    const s = this.state;
+    if (s.noclip === on) return;
+    s.noclip = on;
+    s.velocity.set(0, 0, 0);
+    if (!on) {
+      const p = s.position;
+      s.position.copy(this.findFreeSpot(p.x, p.y, p.z));
+      this.lastSafe.copy(s.position);
     }
   }
 

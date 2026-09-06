@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 npm run dev        # Vite dev server, http://localhost:5173
+npm run dev:debug  # same, plus the dev tools (full map, noclip, overlay)
 npm test           # generation invariants (tsx src/world/worldGen.test.ts)
 npm run typecheck  # tsc --noEmit
 npm run build      # typecheck + vite build
@@ -68,7 +69,9 @@ are dropped rather than spawning the camera inside a wall.
 ## Generation pipeline (`world/worldGen.ts`)
 
 `generateWorld(config)`:
-biome order → zones (one maze per biome, laid side by side on X with a gutter;
+biome order (all of `BIOME_POOL` shuffled on the `biome-order` fork and cut to
+`biomeCount` — **no biome is pinned to the front**, the starting one is drawn
+from the seed like the rest) → zones (one maze per biome, laid side by side on X with a gutter;
 there are no corridor zones — walking one was dead time) → `linkZones()` carves
 each exit east, each next entry west, and fills the gutter as an **L** (a straight interpolation leaves diagonal,
 non-walkable gaps) → `planProgression()` → signposts → teleporters.
@@ -127,6 +130,33 @@ world, different seeds differ).
 
 These checks are pure logic and prove nothing about what is on screen. See
 Verification below.
+
+## Dev mode (`npm run dev:debug`)
+
+Three tools in `src/dev/`, on function keys so they cannot collide with a
+movement key on either AZERTY or QWERTY:
+
+- **F1** — full-world map: every zone at once, no fog of war, with gates,
+  pickups, signposts, teleporters and entry/exit marked. **Click a tile to
+  teleport there.** It is a flat 2D canvas drawn from `World` data, deliberately
+  *not* the in-game minimap (that one is a 3D viewport pass whose whole point is
+  the fog).
+- **F2** — noclip: free flight, no gravity or collision. Forward follows camera
+  pitch; Space/Ctrl are absolute up/down; Shift is fast. Leaving noclip runs the
+  same nudge a teleport does, so exiting inside a wall cannot trap the camera.
+- **F3** — debug overlay: fps, seed, real `ZoneStyle.name`, global and
+  zone-local tile, world position, progression counts and draw calls.
+
+Gating: `__DEV_TOOLS__`, a compile-time literal defined in `vite.config.ts` from
+`VITE_DEV_TOOLS`. It must stay a literal, and the guard must sit **directly in
+front of the `import()`** in `game.ts` — guarding only the calling method still
+leaves a ~10 kB dev chunk in `dist/`. Verify with `ls dist/assets/` after a
+plain `npm run build`: no `devTools-*.js` should appear. (The dev CSS does ship
+in `style.css`; it is ~1 kB of unused rules, kept there so the panels inherit
+the shared variables.)
+
+`src/dev/` may read the world and the player, but nothing outside it may import
+from it — `game.ts` holds only a `type` import plus the guarded dynamic one.
 
 ## Verification
 

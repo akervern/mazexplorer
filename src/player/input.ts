@@ -31,6 +31,8 @@ export interface InputSource {
   detach(): void;
   /** True when this source can drive the camera right now. */
   readonly isActive: boolean;
+  /** -1..1 vertical axis, positive = up. Only read while flying (dev noclip). */
+  readonly lift?: number;
 }
 
 /** Keyboard + mouse with Pointer Lock. Supports both WASD and ZQSD. */
@@ -166,6 +168,16 @@ export class KeyboardMouseInput implements InputSource {
   get sprinting(): boolean {
     return this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
   }
+
+  /**
+   * Vertical axis for free flight: space rises, Ctrl descends. Shift is already
+   * the sprint key, so it cannot double as "down" here.
+   */
+  get lift(): number {
+    const up = this.keys.has('Space') ? 1 : 0;
+    const down = this.keys.has('ControlLeft') || this.keys.has('ControlRight') ? 1 : 0;
+    return up - down;
+  }
 }
 
 /**
@@ -219,6 +231,13 @@ export class InputManager {
 
   get sprinting(): boolean {
     return this.sources.some((s) => (s as KeyboardMouseInput).sprinting === true);
+  }
+
+  /** Summed vertical axis, clamped — see `InputSource.lift`. */
+  get lift(): number {
+    let v = 0;
+    for (const s of this.sources) v += s.lift ?? 0;
+    return Math.max(-1, Math.min(1, v));
   }
 
   dispose(): void {

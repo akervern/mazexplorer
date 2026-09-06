@@ -31,6 +31,7 @@ import { ITEMS } from './world/items.js';
 import { MECHANISM_TYPES, tryUnlock } from './world/unlockMechanisms.js';
 import { TILE } from './core/types.js';
 import { generateWorld, tileToWorld, zoneAtWorldX } from './world/worldGen.js';
+import type { DevHost, DevTools } from './dev/devTools.js';
 
 // Interaction distances scale with the world: a tile is TILE units across, so
 // these stay the same *in tiles* regardless of the voxel scale.
@@ -78,6 +79,8 @@ export class Game {
   private clock = new THREE.Clock();
   private saveTimer = 0;
   private raf = 0;
+  /** Dev-mode tools, only ever constructed under `npm run dev:debug`. */
+  private dev: DevTools | null = null;
 
   constructor(
     private readonly container: HTMLElement,
@@ -180,6 +183,73 @@ export class Game {
 
     window.addEventListener('resize', this.onResize);
     this.applyWeather(startZone.style);
+
+    // `__DEV_TOOLS__` is a compile-time literal (see vite.config.ts), so a
+    // production build folds this to `if (false)` and Rollup drops the dynamic
+    // import below along with the entire `src/dev/` graph.
+    if (__DEV_TOOLS__) this.initDevTools();
+  }
+
+  /**
+   * Load the dev tools lazily. Only reached when `__DEV_TOOLS__` is true, which
+   * is what lets the production bundle carry no trace of the full map, the
+   * debug overlay or the noclip UI.
+   */
+  private initDevTools(): void {
+    const host: DevHost = {
+      world: this.world,
+      renderer: this.renderer,
+      currentZone: () => this.currentZone,
+      playerState: () => {
+        const s = this.player.state;
+        return {
+          x: s.position.x,
+          y: s.position.y,
+          z: s.position.z,
+          yaw: s.yaw,
+          pitch: s.pitch,
+          noclip: s.noclip,
+        };
+      },
+      elapsedTime: () => this.elapsed,
+      teleportToWorld: (x, z) => this.devTeleport(x, z),
+      setNoclip: (on) => this.player.setNoclip(on),
+      setPanelOpen: (open) => {
+        if (open) this.keyboard.releaseLock();
+        else this.keyboard.requestLock();
+      },
+      toast: (m) => this.hud.toast(m),
+    };
+    // The guard is repeated on the import itself, not just on the call to this
+    // method: Rollup only elides a dynamic import — and stops emitting its
+    // chunk — when the literal `false` sits directly in front of the
+    // `import()`. Guarding only the caller leaves a 10 kB dev chunk in `dist/`.
+    if (!__DEV_TOOLS__) return;
+    void import('./dev/devTools.js').then(({ DevTools }) => {
+      // `dispose()` can win the race against the import on a fast quit.
+      if (!this.container.isConnected) return;
+      this.dev = new DevTools(this.container, host);
+    });
+  }
+
+  /**
+   * Dev-map teleport: unlike a teleporter pad this can land anywhere, including
+   * a zone whose ambience has not been visited, so it re-runs the same zone
+   * switch `updateZone` would — otherwise the fog and light stay on the old
+   * biome until the player walks across a zone boundary.
+   *
+   * In noclip the destination is taken literally; on foot it goes through the
+   * controller's nudge, which keeps the camera out of geometry.
+   */
+  private devTeleport(x: number, z: number): void {
+    const state = this.player.state;
+    if (state.noclip) {
+      state.position.set(x, state.position.y, z);
+      state.velocity.set(0, 0, 0);
+    } else {
+      this.player.teleportTo(x, 0, z);
+    }
+    this.updateZone(x);
   }
 
   /** Whether pointer lock has ever been granted for this game. */
@@ -300,7 +370,8 @@ export class Game {
   private update(dt: number): void {
     this.handleActions(this.input.drainActions());
 
-    if (!this.hud.popupOpen) this.player.update(dt);
+    const devPanel = this.dev?.panelOpen ?? false;
+    if (!this.hud.popupOpen && !devPanel) this.player.update(dt);
     this.player.applyToCamera(this.camera);
 
     const pos = this.player.state.position;
@@ -327,6 +398,7 @@ export class Game {
     this.hud.update(dt);
 
     this.checkFinish();
+    this.dev?.update(dt);
 
     this.saveTimer += dt;
     if (this.saveTimer > 8) {
@@ -655,6 +727,7 @@ export class Game {
     cancelAnimationFrame(this.raf);
     window.removeEventListener('resize', this.onResize);
     this.input.dispose();
+    this.dev?.dispose();
     this.minimap.dispose();
     this.hud.dispose();
     this.entities.dispose();
