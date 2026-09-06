@@ -176,9 +176,18 @@ export function buildWorld(world: World, opts: { shadows: boolean }): BuiltWorld
   }
 
   // Link tiles in the gutters between zones.
+  // Every open tile of the whole world, in global grid space. A link tile is
+  // walled on each side that is *not* open, so the neighbour test has to see
+  // the mazes too: the first and last link of a run sit inside a zone's grid,
+  // and walling those against their own corridor would seal the passage.
+  const openTiles = new Set<string>();
+  for (const zone of world.zones) {
+    for (const t of zone.tiles) openTiles.add(tileKey(zone.originX + t.x, zone.originZ + t.y));
+    for (const l of zone.links) openTiles.add(tileKey(l.x, l.z));
+  }
+
   for (const zone of world.zones) {
     const style = zone.style.blocks;
-    const linkSet = new Set(zone.links.map((l) => `${l.x},${l.z}`));
     for (const l of zone.links) {
       const bx = l.x * TILE;
       const bz = l.z * TILE;
@@ -188,15 +197,35 @@ export function buildWorld(world: World, opts: { shadows: boolean }): BuiltWorld
           solid.add(key(bx + ox, -1, bz + oz));
         }
       }
-      // Kerb walls on the sides the link does not continue toward, so the
-      // gutter reads as a passage rather than open ground.
-      for (const dz of [-1, 1]) {
-        if (linkSet.has(`${l.x},${l.z + dz}`)) continue;
-        const wallZ = dz < 0 ? bz - 1 : bz + TILE;
-        for (let ox = 0; ox < TILE; ox++) {
-          for (let y = 0; y < WALL_HEIGHT; y++) {
-            batcher.add(style.wall.tex, style.wall.color, bx + ox, y, wallZ);
-            solid.add(key(bx + ox, y, wallZ));
+
+      // Wall every side the corridor does not continue toward, including the
+      // diagonals: an L-turn leaves an open corner voxel otherwise, and the
+      // gutter reads as open ground rather than a passage.
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          if (dx === 0 && dz === 0) continue;
+          if (openTiles.has(tileKey(l.x + dx, l.z + dz))) continue;
+          // A diagonal only needs filling when it is a true corner: if either
+          // orthogonal neighbour is open the wall against it already covers it.
+          if (dx !== 0 && dz !== 0) {
+            if (!openTiles.has(tileKey(l.x + dx, l.z)) || !openTiles.has(tileKey(l.x, l.z + dz))) {
+              continue;
+            }
+          }
+          // The strip of voxels that side occupies: the full tile width along
+          // an axis the offset does not move on, a single voxel along one it does.
+          const x0 = dx < 0 ? -1 : dx > 0 ? TILE : 0;
+          const x1 = dx === 0 ? TILE - 1 : x0;
+          const z0 = dz < 0 ? -1 : dz > 0 ? TILE : 0;
+          const z1 = dz === 0 ? TILE - 1 : z0;
+          for (let ox = x0; ox <= x1; ox++) {
+            for (let oz = z0; oz <= z1; oz++) {
+              for (let y = 0; y < WALL_HEIGHT; y++) {
+                if (solid.has(key(bx + ox, y, bz + oz))) continue;
+                batcher.add(style.wall.tex, style.wall.color, bx + ox, y, bz + oz);
+                solid.add(key(bx + ox, y, bz + oz));
+              }
+            }
           }
         }
       }
