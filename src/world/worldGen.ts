@@ -20,7 +20,7 @@ import type {
   World,
   Zone,
 } from '../core/types.js';
-import { BIOMES, BIOME_POOL, ENTRY_BIOME } from './biomes.js';
+import { BIOMES, BIOME_POOL } from './biomes.js';
 import { ITEMS } from './items.js';
 import type { ItemRole, MechanismPlan, PlanContext } from './unlockMechanisms.js';
 import { MECHANISM_TYPES, mechanismHint, pickMechanismType } from './unlockMechanisms.js';
@@ -57,9 +57,15 @@ export function generateWorld(config: GameConfig): World {
   const root = new Rng(config.seed);
 
   // --- 1. Biome order -------------------------------------------------
-  const graphRng = root.fork('graph');
-  const pool = graphRng.shuffle(BIOME_POOL).slice(0, biomeCount - 1);
-  const biomeOrder = [ENTRY_BIOME, ...pool];
+  // Every biome is drawn by the seed, the starting one included: nothing is
+  // pinned to the front, so two seeds rarely open on the same mood.
+  //
+  // This uses its own fork rather than the older 'graph' stream. Widening that
+  // shuffle from 5 entries to 6 already changes the order every existing seed
+  // produces, but drawing it here keeps the change contained to the biome list
+  // — everything downstream that still forks off `root` is untouched.
+  const orderRng = root.fork('biome-order');
+  const biomeOrder = orderRng.shuffle(BIOME_POOL).slice(0, biomeCount);
 
   // --- 2. Zones (biomes laid side by side, joined by the gutter) --------
   const zones: Zone[] = [];

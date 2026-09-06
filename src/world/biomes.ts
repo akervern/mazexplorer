@@ -5,8 +5,9 @@ import type { ZoneStyle } from '../core/types.js';
  * Colors are flat RGB — the renderer shades faces per-normal to fake
  * Minecraft-style lighting, and textures are generated on a 2D canvas.
  *
- * BIOME_POOL is the order the world graph draws from; `forest` is always the
- * entry so the tutorial beats (compass, first signpost) land somewhere calm.
+ * BIOME_POOL is the set the world graph draws from. Every biome — including the
+ * one the run starts in — is picked by the seed, so two seeds rarely open on
+ * the same mood.
  */
 
 export const BIOMES: Record<string, ZoneStyle> = {
@@ -107,7 +108,9 @@ export const BIOMES: Record<string, ZoneStyle> = {
   },
 };
 
-/** Draw order for the world graph. Entry biome first, rest shuffled by seed. */
-export const ENTRY_BIOME = 'forest';
-export const BIOME_POOL: string[] = ['desert', 'snow', 'cave', 'swamp', 'ruins'];
+/**
+ * Every biome the world graph can use, entry included — the order is shuffled
+ * per seed in `generateWorld`.
+ */
+export const BIOME_POOL: string[] = ['forest', 'desert', 'snow', 'cave', 'swamp', 'ruins'];
 
