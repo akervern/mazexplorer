@@ -177,9 +177,39 @@ minimap or UI, run `npm run dev` and look at it before reporting done.
   key — never a mesh per block. Textures are generated on a 2D canvas; the
   project ships zero external assets.
 - Visual variety lives in `render/decor.ts` (see Environment variety below).
+- Screen flow goes through the state machine (`scenes/`), never through screens
+  toggling each other — see Screens and states.
 - Saves hold only seed, config, progress uids and fog-of-war tiles; the world
   is regenerated from the seed. Storage failures are swallowed on purpose —
   progress is a convenience, never a requirement.
+
+## Screens and states
+
+`core/stateMachine.ts` is a generic, DOM-free FSM; `scenes/` holds the app's
+four states and the shared context they act on. `main.ts` only builds the
+machine and forwards `pointerlockchange`.
+
+    menu --start--> playing --pause--> paused --resume--> playing
+                    playing --finish--> finished
+                    paused/finished --quit--> menu   finished --replay--> playing
+
+The transition table is the whole flow: **an event a state does not declare is
+dropped**, which is the point — `finished` has no `pause`, so an Esc after the
+exit cannot stack a pause panel over the results.
+
+Rules that keep it honest:
+
+- A state's `enter()`/`exit()` owns showing and hiding its own screen. Screens
+  never hide themselves in a click handler, or a transition down another path
+  leaves one visible.
+- `playing` owns the `Game`: it builds it, and disposes it on any exit except to
+  `paused` (which keeps it alive so resuming is free). `Game.pause()`/`resume()`
+  are idempotent — pause is reached both from Esc and from a lost pointer lock,
+  and a second `resume()` would start a rival rAF loop.
+- Screens report intent as events (`ctx.machine.send(...)`); they hold no
+  reference to each other and no game state.
+
+Adding a screen is one state file plus its id and events in `scenes/appState.ts`.
 
 ## Environment variety
 

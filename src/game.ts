@@ -280,14 +280,22 @@ export class Game {
     this.loop();
   }
 
+  /**
+   * Idempotent on purpose: the app reaches its paused state both from the Esc
+   * key (the game pauses itself, then reports it) and from a lost pointer lock
+   * (the state pauses the game), so this can be called twice for one pause.
+   */
   pause(): void {
+    if (!this.running) return;
     this.running = false;
     this.keyboard.releaseLock();
     this.persist();
   }
 
   resume(): void {
-    if (this.finished) return;
+    // A second call while already running would start a rival rAF loop and
+    // double the effective frame rate.
+    if (this.finished || this.running) return;
     this.running = true;
     this.clock.getDelta(); // discard the paused span
     this.keyboard.requestLock();

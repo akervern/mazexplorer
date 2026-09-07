@@ -11,7 +11,6 @@ import { escapeHtml } from './hud.js';
 
 export interface MenuCallbacks {
   onStart(config: GameConfig): void;
-  onResume?(): void;
 }
 
 export class StartMenu {
@@ -138,14 +137,10 @@ export class EndScreen {
         </div>
       </div>`;
 
-    this.root.querySelector('[data-replay]')!.addEventListener('click', () => {
-      this.hide();
-      opts.onReplay();
-    });
-    this.root.querySelector('[data-menu]')!.addEventListener('click', () => {
-      this.hide();
-      opts.onMenu();
-    });
+    // Neither button hides the screen: the state machine's `exit()` owns that,
+    // so a screen is never left visible by a transition that took another path.
+    this.root.querySelector('[data-replay]')!.addEventListener('click', opts.onReplay);
+    this.root.querySelector('[data-menu]')!.addEventListener('click', opts.onMenu);
     this.root.querySelector('[data-copy]')!.addEventListener('click', () => {
       void navigator.clipboard?.writeText(opts.config.seed);
     });
@@ -176,10 +171,6 @@ export class PauseOverlay {
     container.appendChild(this.root);
     this.root.querySelector('[data-resume]')!.addEventListener('click', onResume);
     this.root.querySelector('[data-quit]')!.addEventListener('click', onQuit);
-  }
-
-  get visible(): boolean {
-    return !this.root.hidden;
   }
 
   show(): void {
