@@ -144,9 +144,25 @@ export class DevMap {
 
     for (const z of this.world.zones) {
       const e = { x: z.originX + z.entry.x, z: z.originZ + z.entry.y };
-      const x = { x: z.originX + z.exit.x, z: z.originZ + z.exit.y };
       m.push({ ...e, color: '#ffffff', label: `${z.id} entrée` });
-      m.push({ ...x, color: '#ffffff', label: `${z.id} sortie` });
+      // One marker per passage: a branching zone has several, and which side
+      // each leaves by is exactly what the map is for.
+      for (const g of z.gates) {
+        m.push({
+          x: z.originX + g.tile.x,
+          z: z.originZ + g.tile.y,
+          color: g.optional ? '#ffd27f' : '#ffffff',
+          label: `${z.id} → ${g.toZoneId} (${g.side})${g.optional ? ' · optionnel' : ''}`,
+        });
+      }
+      if (!z.gates.length) {
+        m.push({
+          x: z.originX + z.exit.x,
+          z: z.originZ + z.exit.y,
+          color: z.optional ? '#ffd27f' : '#ffffff',
+          label: z.optional ? `${z.id} cul-de-sac` : `${z.id} sortie finale`,
+        });
+      }
     }
     for (const s of this.world.signposts) {
       m.push({ ...at(s.zoneId, s.tile), color: '#c8a2ff', label: `panneau : ${s.title}` });

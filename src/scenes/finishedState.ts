@@ -12,7 +12,7 @@ export function finishedState(ctx: AppContext): State<AppStateId, AppEvent, AppC
     on: { replay: 'playing', quit: 'menu' },
 
     enter({ payload }) {
-      const { seconds, biomes } = payload as FinishPayload;
+      const { seconds, biomes, explored } = payload as FinishPayload;
       const config = ctx.config!;
       // The run is won; the save would only offer to resume a finished world.
       clearSave();
@@ -20,6 +20,7 @@ export function finishedState(ctx: AppContext): State<AppStateId, AppEvent, AppC
         seconds,
         config,
         biomes,
+        explored,
         onReplay: () => ctx.machine.send('replay', { config }),
         onMenu: () => ctx.machine.send('quit'),
       });

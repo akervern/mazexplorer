@@ -12,7 +12,11 @@ import type { AppContext, AppEvent, AppStateId, StartPayload } from './appState.
 export function playingState(ctx: AppContext): State<AppStateId, AppEvent, AppContext> {
   return {
     id: 'playing',
-    on: { pause: 'paused', finish: 'finished', quit: 'menu' },
+    // `start` re-enters `playing` from itself: the dev gallery's test bench
+    // swaps the running world for another one without going through the menu.
+    // A self-transition still runs `exit()` then `enter()`, so the old game is
+    // disposed and the new config is honoured like any fresh run.
+    on: { pause: 'paused', finish: 'finished', quit: 'menu', start: 'playing' },
 
     enter({ from, payload }) {
       // Coming back from the pause overlay resumes the same game; anything else
@@ -29,17 +33,29 @@ export function playingState(ctx: AppContext): State<AppStateId, AppEvent, AppCo
       ctx.game?.dispose();
       const game = new Game(ctx.container, config, {
         onFinish: (seconds) =>
-          ctx.machine.send('finish', { seconds, biomes: game.world.biomeCount }),
+          ctx.machine.send('finish', {
+            seconds,
+            // Zones actually walked through: a run takes one route through the
+            // graph, so this is smaller than the world's zone count.
+            biomes: game.world.teleporters.filter((t) => t.discovered).length,
+            explored: game.world.zones.length,
+          }),
         onPause: () => ctx.machine.send('pause'),
+        // Dev gallery test bench: re-enter `playing` with another config.
+        onRestart: (next) => ctx.machine.send('start', { config: next }),
       });
       ctx.game = game;
 
-      // Resuming the same seed restores progress; a fresh seed starts clean.
-      const saved = loadProgress();
-      if (saved && saved.config.seed === config.seed && saved.config.size === config.size) {
-        game.restore();
-      } else {
-        clearSave();
+      // The dev bench is a throwaway world: it must neither restore the
+      // player's progress nor wipe it on the way in.
+      if (!config.forceMechanism) {
+        // Resuming the same seed restores progress; a fresh seed starts clean.
+        const saved = loadProgress();
+        if (saved && saved.config.seed === config.seed && saved.config.size === config.size) {
+          game.restore();
+        } else {
+          clearSave();
+        }
       }
 
       game.start();

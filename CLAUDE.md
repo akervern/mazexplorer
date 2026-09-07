@@ -8,9 +8,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run dev        # Vite dev server, http://localhost:5173
 npm run dev:debug  # same, plus the dev tools (full map, noclip, overlay)
 npm test           # generation invariants (tsx src/world/worldGen.test.ts)
+npm run test:e2e   # Playwright: renders the real game on the GPU (see Verification)
+npm run test:all   # both suites
 npm run typecheck  # tsc --noEmit
 npm run build      # typecheck + vite build
 ```
+
+`npm run test:e2e` starts its own dev server on port 5199 with the dev tools
+on, since the tests drive the F1 map and F3 overlay. `--ui` opens the Playwright
+runner; a failure leaves a screenshot and trace under `test-results/`.
 
 `npm test` is a plain tsx script, not a test runner — there is no per-test filter.
 To narrow it, edit the `SIZES` / `SEEDS` arrays at the top of
@@ -45,36 +51,44 @@ Three spaces, converted only through `worldGen.ts` helpers:
 1. **Maze cell** — `cols × rows` logical cells (`maze.ts`).
 2. **Zone grid tile** — cells expanded to `(cols*2+1) × (rows*2+1)`; odd indices
    are cells, even ones walls. `Tile {x, y}` is always this space. Zones carry
-   `originX`/`originZ` so all zone tiles share one global grid.
+   `originX`/`originZ` so all zone tiles share one global grid — laid out in
+   2D, so locate a position with `zoneAt(world, x, z)`, never by X alone.
 3. **World / voxel units** — grid × `TILE`.
 
 `TILE` (`core/types.ts`, currently 3) is the single knob for corridor width.
-Everything derived from it — interaction ranges, fog, camera planes, shadow
-frustum, minimap span — scales off it, so never hardcode a distance in world
+Everything derived from it scales off it, so never hardcode a distance in world
 units; write it as a multiple of `TILE`. Convert with `tileToWorld()` (tile
 centre), `tileOrigin()` (low corner) and `linkToWorld()`; never multiply by
 `TILE` by hand at a call site.
 
-A voxel at index `i` spans `[i, i+1)`. Rendering compensates by placing box
-instances at `+0.5` (`voxelWorld.ts`), and collision computes its high bound as
-`ceil(c+R)-1`, not `floor(c+R)` — using floor widens the AABB by a voxel on one
-side and makes walls asymmetrically solid. Player movement is integrated per
-axis in sub-steps smaller than the player radius; a single long step tunnels
-through walls on a slow frame.
-
-Changing `TILE` invalidates saved positions (stored in world units). `save.ts`
-bakes `TILE` into the storage key (`mazexplorer:save:v2:t${TILE}`) so old saves
-are dropped rather than spawning the camera inside a wall.
+Collision bounds, the voxel `+0.5` offset, sub-stepping against tunnelling and
+what changing `TILE` invalidates: `.claude/docs/coordinates.md`.
 
 ## Generation pipeline (`world/worldGen.ts`)
 
-`generateWorld(config)`:
-biome order (all of `BIOME_POOL` shuffled on the `biome-order` fork and cut to
-`biomeCount` — **no biome is pinned to the front**, the starting one is drawn
-from the seed like the rest) → zones (one maze per biome, laid side by side on X with a gutter;
-there are no corridor zones — walking one was dead time) → `linkZones()` carves
-each exit east, each next entry west, and fills the gutter as an **L** (a straight interpolation leaves diagonal,
-non-walkable gaps) → `planProgression()` → signposts → teleporters.
+**The world is a graph, not a chain.** `generateWorld(config)`:
+biome graph (`biome-graph` fork) → biome styles (`biome-order` fork — **no
+biome is pinned to the front**, the starting one is drawn from the seed like
+the rest) → one maze per node → 2D layout → `linkZones()` carves one passage
+per graph edge and fills each gutter as an **L** (a straight interpolation
+leaves diagonal, non-walkable gaps) → `planProgression()` → signposts →
+teleporters.
+
+The shape that follows from it:
+
+- a zone can have **several exits** (`Zone.gates`, one per outgoing edge)
+  leading to different biomes, and the branches **reconverge** before the end;
+- some branches are **dead ends** holding loot — `Zone.optional`. Nothing the
+  run needs may live there;
+- zones are placed in **2D** (X = graph depth, Z = spread within a rank), so
+  `originX`/`originZ` and `zoneAt(world, x, z)` — never an X-only lookup;
+- **one mechanism per gate**, not per zone: two exits means two puzzles;
+- `config.biomeCount` is the **depth** (biomes on one route), not the zone
+  count. Alternative routes add zones without lengthening the run.
+
+Details — graph construction, layout, portal placement, the gating constraints
+and why each exists: `.claude/docs/worldgen.md`. Read it before touching
+`linkZones`, `placeBlockingTiles` or the layout.
 
 Biome mazes come from **randomized Kruskal** (`maze.ts`), not a recursive
 backtracker: Kruskal merges many small clumps, so corridors stay short and
@@ -86,83 +100,115 @@ points. Two knobs shape the texture, and they pull against each other:
 - `braid` (0.08) reopens dead ends. Kept low **because dead ends are wanted** —
   `loop` already provides the shortcuts braiding used to be responsible for.
 
-Raising `loop` much past ~0.2 risks leaving no cut vertex on an entry→exit path,
-and `placeBlockingTile()` needs one to hang a gate on — `npm test` fails loudly
+Raising `loop` much past ~0.2 risks leaving no cut vertex on an entry→portal
+path, and `placeBlockingTiles()` needs one per gate — `npm test` fails loudly
 when that happens, so re-run it after touching either knob.
 
-`planProgression()` assigns exactly one mechanism per biome zone, drawn from a
-pool chosen by the zone's role:
+`planProgression()` assigns one mechanism per **gate**, drawn from a pool
+chosen by the passage's role:
 
-- most zones: `key_door`, `pedestal_offering`, `break_obstacle`, `activate_bridge`
-- 1–2 "deep exploration" zones: `fragment_set`, `light_threshold`
-- one late transition (needs ≥ 4 biomes): `cross_biome_tool`, whose item is
-  planted in an *earlier* biome — the intended backtrack via teleporter
+- most passages: `key_door`, `pedestal_offering`, `break_obstacle`, `activate_bridge`
+- 1–2 "deep exploration" passages: `fragment_set`, `light_threshold`
+- one late transition: `cross_biome_tool`, whose item is planted in a
+  **dominator** — a zone every route crosses, since a zone on the branch the
+  player skipped would make the run unwinnable.
 
-Loot for a gate is placed only in `tilesBeforeGate()`. This is the subtle
-constraint: without it a key can spawn behind its own door.
+Two subtle constraints, both load-bearing:
+
+- loot for a gate goes only in `tilesBeforeGates()` — clear of **every** gate
+  of its zone, or a key spawns behind its own door, or behind the other route's;
+- a zone's gates must be mutually independent: opening one may never be a
+  prerequisite for reaching another, or the branching collapses into a forced
+  order.
 
 ## Adding an unlock mechanism
 
 One entry in `src/world/unlockMechanisms.ts` plus its id in `MechanismTypeId`
 (`core/types.ts`). Nothing else changes — maze generation, renderer, HUD,
-compass and signposts all go through the `MechanismType` interface, and
-signposts read `requires` to write their own hint.
+compass, signposts and the dev gallery all go through the `MechanismType`
+interface, and signposts read `requires` to write their own hint.
 
-- `plan(ctx)` runs at generation: reserve items via `ctx.pickItem(role)` /
-  `ctx.pickCrossBiomeItem()`, declare a `target.type` (`door | pedestal |
-  rubble | gap | gate`). Return `null` to decline — the generator falls back to
-  `key_door`.
-- `onCheck(inv, inst)` / `onUnlock(world, inst)` run at play time. `onUnlock`
-  may only call `WorldMutator.clearBlocking()` / `buildBridge()`.
-- Then allow the id in the appropriate pool in `planProgression()`.
+- `plan(ctx)` runs at generation and may return `null` to decline (the
+  generator falls back to `key_door`); `onCheck` / `onUnlock` run at play time,
+  and `onUnlock` may only call `clearBlocking()` / `buildBridge()`.
+- Declare the four fields the gallery displays: `category`, `summary`,
+  `consumes`, `targetKind`.
+- Allow the id in the appropriate pool in `planProgression()` — pools are per
+  *passage*, not per zone.
 
-Then run `npm test` — the invariants below catch a mechanism that makes a world
-unwinnable.
+`MechanismCategory` groups the catalogue by **what it asks of the player**
+(`fetch`, `sacrifice`, `collect`, `traversal`, `backtrack`) — a different axis
+from the pools, which sort by a *passage's role* in the run.
+
+Then run `npm test`: the invariants catch a mechanism that makes a world
+unwinnable, in a normal world and in the dev bench's two-zone one.
+
+The interface in full, the two axes, and the `forceMechanism` bench:
+`.claude/docs/mechanisms.md`.
 
 ## What `npm test` guarantees
 
-Per world: one connected walkable space; each zone's exit reachable from its
-entry; **every gate is a true chokepoint** (walling it disconnects the exit, so
-progression cannot be routed around); the exit is gated; and the run is
-**completable** — a headless simulation collects reachable pickups and fires
-reachable mechanisms until it wins. Plus determinism (same seed ⇒ identical
-world, different seeds differ).
+Per world: one connected walkable space; every passage reachable from its
+zone's entry; **every gate is a true chokepoint** for its own passage (walling
+it disconnects that route, so progression cannot be routed around); **the
+routes are independent** (no gate gates another); **link tiles are floor in any
+zone they cross** (geometry and grid must agree, or a gutter is a trench carved
+across a biome — walkable, so nothing else catches it); the exit is gated; the
+run is **completable** — a headless simulation collects reachable pickups and
+fires reachable mechanisms until it wins — and still completable **ignoring
+every optional branch**. Plus: edges always point to a later rank, some seeds
+branch, and determinism (same seed ⇒ identical world, different seeds differ).
+
+Plus, for the dev bench: every mechanism in the catalogue, forced onto a
+two-zone world, still yields a **completable** run and really shows the
+mechanism asked for (`cross_biome_tool` may fall back to `key_door` on the
+start zone's gate, which has no earlier biome to plant its tool in).
 
 These checks are pure logic and prove nothing about what is on screen. See
 Verification below.
 
 ## Dev mode (`npm run dev:debug`)
 
-Three tools in `src/dev/`, on function keys so they cannot collide with a
-movement key on either AZERTY or QWERTY:
+Four tools in `src/dev/`, on function keys: **F1** full-world map (click a
+tile to teleport), **F2** noclip, **F3** debug overlay (fps, seed, real
+`ZoneStyle.name`, graph rank, this zone's exits and their mechanisms), **F4**
+mechanism gallery.
 
-- **F1** — full-world map: every zone at once, no fog of war, with gates,
-  pickups, signposts, teleporters and entry/exit marked. **Click a tile to
-  teleport there.** It is a flat 2D canvas drawn from `World` data, deliberately
-  *not* the in-game minimap (that one is a 3D viewport pass whose whole point is
-  the fog).
-- **F2** — noclip: free flight, no gravity or collision. Forward follows camera
-  pitch; Space/Ctrl are absolute up/down; Shift is fast. Leaving noclip runs the
-  same nudge a teleport does, so exiting inside a wall cannot trap the camera.
-- **F3** — debug overlay: fps, seed, real `ZoneStyle.name`, global and
-  zone-local tile, world position, progression counts and draw calls.
+The gallery lists the catalogue grouped by `MechanismCategory` and its
+"Tester" button starts a throwaway run on a two-zone world where every gate is
+that mechanism — `GameConfig.forceMechanism`, honoured at the single point in
+`planProgression()` that picks a pool. Without it, seeing a specific mechanism
+means rerolling seeds until the weighted draw yields it. The field is dev-only:
+absent from a normal run, so no existing seed shifts. A bench run neither
+restores nor writes the save (`playingState`, `Game.persist`).
 
-Gating: `__DEV_TOOLS__`, a compile-time literal defined in `vite.config.ts` from
-`VITE_DEV_TOOLS`. It must stay a literal, and the guard must sit **directly in
-front of the `import()`** in `game.ts` — guarding only the calling method still
-leaves a ~10 kB dev chunk in `dist/`. Verify with `ls dist/assets/` after a
-plain `npm run build`: no `devTools-*.js` should appear. (The dev CSS does ship
-in `style.css`; it is ~1 kB of unused rules, kept there so the panels inherit
-the shared variables.)
+Gated by `__DEV_TOOLS__`, a compile-time literal from `vite.config.ts`. The
+guard must sit **directly in front of the `import()`** in `game.ts` — guarding
+only the calling method still ships a ~10 kB dev chunk. Verify with
+`ls dist/assets/` after a plain `npm run build`: no `devTools-*.js`.
 
 `src/dev/` may read the world and the player, but nothing outside it may import
-from it — `game.ts` holds only a `type` import plus the guarded dynamic one.
+from it. Details: `.claude/docs/devtools.md`.
 
 ## Verification
 
 `npm test` and `npm run typecheck` passing does **not** mean the change works:
-they never render a frame. For anything touching rendering, collision, camera,
-minimap or UI, run `npm run dev` and look at it before reporting done.
+they never render a frame. `npm run test:e2e` does — it drives the real game in
+headless Chromium, on the actual GPU (AMD via ANGLE/Vulkan). `npm run test:all`
+runs both.
+
+For anything touching rendering, collision, camera, minimap or UI, add or
+extend an e2e test — and still run `npm run dev:debug` and look at the screen
+for anything about feel: proportions, colour, pacing. No assertion catches
+"this reads wrong".
+
+Two traps that cost real time, and the rest of the detail (config choices,
+driving helpers, the pinned seed): `.claude/docs/e2e.md`.
+
+- **Pointer lock cannot be granted by script** — noclip flight keys never
+  respond in a test. Teleport from the dev map to frame a shot.
+- **An e2e test that cannot fail is worse than none.** After writing one, break
+  what it covers and watch it go red.
 
 ## Layer boundaries worth keeping
 
@@ -240,14 +286,16 @@ Details, tuning values and the draw-call budget: `.claude/docs/variety.md`.
 
 Update the affected section in the **same commit** as any change that
 invalidates it: `TILE` or the coordinate helpers, the collision bounds, the
-generation pipeline (step order, `fork()` usage, zone layout, loot-before-gate),
-a new or changed unlock mechanism and its pool in `planProgression()`, the
-invariants `npm test` covers, the npm commands, the layer boundaries, or the
-variety layers in `render/decor.ts`. A stale
+generation pipeline (step order, `fork()` usage, the biome graph, zone layout,
+gate independence, loot-before-gates), a new or changed unlock mechanism and
+its pool in `planProgression()`, the
+invariants `npm test` covers, what the e2e suite drives, the npm commands, the
+layer boundaries, or the variety layers in `render/decor.ts`. A stale
 CLAUDE.md is worse than none — it sends the next session after an architecture
 that no longer exists.
 
 Split it when it passes ~200 lines, or when a single section passes ~40. Keep a
 short core here (commands, determinism, layer boundaries, visual verification)
-and move the detail to `.claude/docs/` — the natural cuts are `coordinates.md`,
-`worldgen.md` and `mechanisms.md` — leaving a link from each section.
+and move the detail to `.claude/docs/`, leaving a link from each section.
+Already split out: `coordinates.md`, `worldgen.md`, `devtools.md`, `e2e.md`,
+`variety.md`, `mechanisms.md`.

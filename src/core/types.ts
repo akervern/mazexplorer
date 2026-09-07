@@ -56,6 +56,28 @@ export interface Maze {
   rows: number;
 }
 
+/** Which side of a zone grid a portal is carved through. */
+export type Side = 'north' | 'east' | 'south' | 'west';
+
+/**
+ * One outgoing passage from a zone toward a neighbour. A zone with two gates
+ * offers a real choice of route: each is carved to its own side, gated by its
+ * own mechanism, and reaches a different zone.
+ */
+export interface ZoneGate {
+  /** Zone this passage leads to. */
+  toZoneId: string;
+  /** Tile inside this zone the passage leaves from. */
+  tile: Tile;
+  side: Side;
+  /** Tile inside the destination zone the passage arrives at. */
+  toTile: Tile;
+  /** Uid of the mechanism guarding it, once progression is planned. */
+  mechanismUid?: string;
+  /** True when this passage only leads to an optional dead-end branch. */
+  optional: boolean;
+}
+
 export interface Zone {
   id: string;
   index: number;
@@ -66,11 +88,25 @@ export interface Zone {
   h: number;
   originX: number;
   originZ: number;
+  /** Depth in the biome graph: 0 for the starting zone. */
+  rank: number;
+  /** Where the player arrives from the previous zone (the start zone's spawn). */
   entry: Tile;
+  /**
+   * Where the player leaves toward each neighbour. Empty on a leaf: a dead-end
+   * branch or the final zone, whose `exit` is the end of the run.
+   */
+  gates: ZoneGate[];
+  /**
+   * The tile the run ends on, for the final zone only. Kept for the renderer
+   * and the dev map, which mark it.
+   */
   exit: Tile;
+  /** True when nothing depends on visiting this zone — a loot cul-de-sac. */
+  optional: boolean;
   tiles: Tile[];
   deadEnds: Tile[];
-  /** World-space walkable tiles joining this zone's exit to the next zone. */
+  /** World-space walkable tiles joining this zone to its neighbours. */
   links: Vec2[];
 }
 
@@ -114,6 +150,8 @@ export interface Mechanism {
   uid: string;
   type: MechanismTypeId;
   zoneId: string;
+  /** Zone this mechanism's gate opens the way to, when it guards a passage. */
+  toZoneId?: string;
   requires: string[];
   consumesItem: boolean;
   target: MechanismTarget;
@@ -155,6 +193,14 @@ export interface GameConfig {
   size: SizeKey;
   biomeCount?: number;
   shadows?: boolean;
+  /**
+   * Dev bench only: force every passage to be guarded by this mechanism
+   * instead of drawing one from the pool its role allows.
+   *
+   * Absent in every normal run — and the generator only consults it when it is
+   * set — so an existing seed's world is untouched. See `src/dev/devGallery.ts`.
+   */
+  forceMechanism?: MechanismTypeId;
 }
 
 export interface World {

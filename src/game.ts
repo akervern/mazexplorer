@@ -30,7 +30,7 @@ import { Minimap } from './ui/minimap.js';
 import { ITEMS } from './world/items.js';
 import { MECHANISM_TYPES, tryUnlock } from './world/unlockMechanisms.js';
 import { TILE } from './core/types.js';
-import { generateWorld, tileToWorld, zoneAtWorldX } from './world/worldGen.js';
+import { generateWorld, tileToWorld, zoneAt } from './world/worldGen.js';
 import type { DevHost, DevTools } from './dev/devTools.js';
 
 // Interaction distances scale with the world: a tile is TILE units across, so
@@ -42,6 +42,11 @@ const AMBIENCE_BLEND = 2.2; // seconds to cross-fade between biome moods
 export interface GameHooks {
   onFinish(seconds: number): void;
   onPause(): void;
+  /**
+   * Dev only: replace the running game with one built on another config. The
+   * dev gallery's test bench uses it; a normal run never calls it.
+   */
+  onRestart?(config: GameConfig): void;
 }
 
 export class Game {
@@ -221,6 +226,7 @@ export class Game {
         else this.keyboard.requestLock();
       },
       toast: (m) => this.hud.toast(m),
+      restart: (config) => this.hooks.onRestart?.(config),
     };
     // The guard is repeated on the import itself, not just on the call to this
     // method: Rollup only elides a dynamic import — and stops emitting its
@@ -251,7 +257,7 @@ export class Game {
     } else {
       this.player.teleportTo(x, 0, z);
     }
-    this.updateZone(x);
+    this.updateZone(x, z);
   }
 
   /**
@@ -350,6 +356,9 @@ export class Game {
   }
 
   private persist(): void {
+    // A dev bench run is disposable — persisting it would overwrite the real
+    // save with a two-zone world the menu's "Reprendre" would then offer.
+    if (this.config.forceMechanism) return;
     const p = this.player.state.position;
     saveProgress({
       config: this.config,
@@ -396,7 +405,7 @@ export class Game {
     this.sun.target.position.set(pos.x, 0, pos.z);
     this.sun.target.updateMatrixWorld();
 
-    this.updateZone(pos.x);
+    this.updateZone(pos.x, pos.z);
     this.blendAmbience(dt);
     this.entities.update(this.elapsed);
     this.updateSnow(dt);
@@ -456,8 +465,8 @@ export class Game {
   }
 
   /** Track which zone the player stands in, for ambience and the compass. */
-  private updateZone(x: number): void {
-    const zone = zoneAtWorldX(this.world, x);
+  private updateZone(x: number, z: number): void {
+    const zone = zoneAt(this.world, x, z);
     if (zone.id === this.currentZone.id) return;
 
     this.currentZone = zone;
@@ -719,8 +728,12 @@ export class Game {
   private checkFinish(): void {
     if (this.finished) return;
     const lastZone = this.zoneOf(this.world.exit.zoneId);
-    const finalMech = this.world.mechanisms.find((m) => m.isFinal);
-    if (finalMech && !finalMech.unlocked) return;
+    // Several passages can lead into the final zone, one per route through the
+    // graph. The player opens the one on the route they took, so requiring a
+    // particular gate would strand them on the exit tile — ANY of them being
+    // open means they legitimately got here.
+    const finalMechs = this.world.mechanisms.filter((m) => m.isFinal);
+    if (finalMechs.length && !finalMechs.some((m) => m.unlocked)) return;
 
     const pos = this.player.state.position;
     const ew = tileToWorld(lastZone, this.world.exit.tile);

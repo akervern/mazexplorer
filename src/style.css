@@ -786,3 +786,175 @@ button.primary:hover {
 .devmap-legend i:first-child {
   margin-left: 0;
 }
+
+/* --- Dev mechanism gallery (F4) ------------------------------------------
+   Same modal shell as the dev map, with a scrolling body: the catalogue is
+   meant to grow, so the card grid wraps and the panel scrolls rather than the
+   cards shrinking. */
+
+.devgallery {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(6, 7, 11, 0.82);
+  backdrop-filter: blur(2px);
+}
+
+.devgallery[hidden] {
+  display: none;
+}
+
+.devgallery-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 76rem);
+  max-height: 100%;
+  background: var(--panel-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.devgallery-panel header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.8rem;
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.devgallery-panel header strong {
+  color: var(--accent);
+  letter-spacing: 0.04em;
+}
+
+.devgallery-count {
+  color: var(--muted);
+  font: 0.75rem ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* CSS columns rather than a grid of rows: families hold one to three
+   mechanisms and the catalogue grows unevenly, so a row-based layout leaves a
+   single-card family alone on a full-width line. Columns let a short family sit
+   directly under the previous one and keep the panel dense as entries pile up. */
+.devgallery-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.9rem;
+  column-width: 19rem;
+  column-gap: 1.1rem;
+}
+
+/* `break-inside` keeps a family's heading with its cards instead of splitting
+   it across two columns. */
+.devgallery-group {
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  margin-bottom: 1rem;
+}
+
+.devgallery-group h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.devgallery-group h3 span {
+  font: 0.7rem ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted);
+}
+
+.devgallery-blurb {
+  margin: 0.1rem 0 0.5rem;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+/* Cards flow inside their family; the families themselves are laid out in
+   columns by `.devgallery-body` below. */
+.devgallery-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.devgallery-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.6rem 0.7rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) / 2);
+}
+
+.devgallery-card h4 {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--accent);
+}
+
+.devgallery-card code {
+  font: 0.68rem ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted);
+}
+
+.devgallery-card p {
+  margin: 0.1rem 0 0.2rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+.devgallery-card dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.9rem;
+  margin: 0 0 0.2rem;
+  font-size: 0.72rem;
+}
+
+.devgallery-card dl div {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.devgallery-card dt {
+  color: var(--muted);
+}
+
+.devgallery-card dd {
+  margin: 0;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.devgallery-test {
+  margin-top: 0.35rem;
+  align-self: flex-start;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.devgallery-panel footer {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 0.9rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.devgallery-panel footer span {
+  flex: 1;
+}

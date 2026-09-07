@@ -53,4 +53,5 @@ export interface StartPayload {
 export interface FinishPayload {
   seconds: number;
   biomes: number;
+  explored: number;
 }

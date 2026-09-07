@@ -34,7 +34,7 @@ export class StartMenu {
         return `<label class="size-option">
             <input type="radio" name="size" value="${k}" ${k === 'medium' ? 'checked' : ''}>
             <span class="size-label">${p.label}</span>
-            <span class="size-meta">${p.biomes} biomes · ~${p.minutes} min</span>
+            <span class="size-meta">${p.biomes} biomes par trajet · ~${p.minutes} min</span>
           </label>`;
       })
       .join('');
@@ -116,7 +116,10 @@ export class EndScreen {
   show(opts: {
     seconds: number;
     config: GameConfig;
+    /** Zones actually walked through. */
     biomes: number;
+    /** Zones the world held — more than `biomes` once routes branch. */
+    explored: number;
     onReplay(): void;
     onMenu(): void;
   }): void {
@@ -126,7 +129,7 @@ export class EndScreen {
     this.root.innerHTML = `
       <div class="menu-panel">
         <h1>Sortie atteinte 🎉</h1>
-        <p class="tagline">${opts.biomes} biomes traversés.</p>
+        <p class="tagline">${opts.biomes} biomes traversés${opts.explored > opts.biomes ? ` sur ${opts.explored}` : ''}.</p>
         <div class="result-row"><span>Temps</span><strong>${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}</strong></div>
         <div class="result-row"><span>Graine</span><strong class="seed-out">${escapeHtml(opts.config.seed)}</strong></div>
         <div class="result-row"><span>Taille</span><strong>${SIZE_PRESETS[opts.config.size].label}</strong></div>

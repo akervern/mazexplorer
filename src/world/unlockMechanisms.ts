@@ -41,9 +41,60 @@ export interface PlanContext {
 
 export type ItemRole = 'key' | 'offering' | 'fragment' | 'tool' | 'trigger';
 
+/**
+ * What a mechanism asks of the player. The catalogue is meant to grow, so a
+ * mechanism declares its family rather than being recognised by id: the dev
+ * gallery groups by it, and it documents at a glance what a new entry adds
+ * that the existing ones do not.
+ *
+ * It is *not* the same axis as the pools in `planProgression()`, which are
+ * about a passage's role in the run (ordinary / deep / late transition). A
+ * category may appear in several pools.
+ */
+export type MechanismCategory = 'fetch' | 'sacrifice' | 'collect' | 'traversal' | 'backtrack';
+
+/** Display metadata for each category, in the order the gallery lists them. */
+export const MECHANISM_CATEGORIES: Record<
+  MechanismCategory,
+  { label: string; blurb: string }
+> = {
+  fetch: {
+    label: 'Trouver un objet',
+    blurb: 'Un objet unique, caché dans la zone, ouvre le passage. La base du jeu.',
+  },
+  sacrifice: {
+    label: 'Offrir un objet',
+    blurb: "L'objet est consommé — il ne resservira pas ailleurs.",
+  },
+  collect: {
+    label: 'Rassembler plusieurs objets',
+    blurb: 'Plusieurs exemplaires dispersés : récompense la fouille complète de la zone.',
+  },
+  traversal: {
+    label: 'Franchir un obstacle',
+    blurb: 'Le terrain lui-même bloque ; le déblocage change la géométrie.',
+  },
+  backtrack: {
+    label: 'Revenir sur ses pas',
+    blurb: "L'objet vient d'un biome déjà traversé : il faut reprendre un téléporteur.",
+  },
+};
+
 export interface MechanismType {
   id: MechanismTypeId;
   label: string;
+  /** Family this mechanism belongs to — groups the dev gallery. */
+  category: MechanismCategory;
+  /** One line for the dev gallery: what the player actually has to do. */
+  summary: string;
+  /**
+   * Whether the required item is eaten on unlock. `plan()` decides it per
+   * instance; this is the same answer stated statically, so the gallery can
+   * show it without fabricating a generation context.
+   */
+  consumes: boolean;
+  /** Blocking geometry this mechanism puts in the corridor. */
+  targetKind: BlockingKind;
   /** Relative pick weight inside its allowed pool. */
   weight: number;
   plan(ctx: PlanContext): MechanismPlan | null;
@@ -70,6 +121,11 @@ export const MECHANISM_TYPES: Record<MechanismTypeId, MechanismType> = {
   key_door: {
     id: 'key_door',
     label: 'Porte verrouillée',
+    category: 'fetch',
+    summary:
+      'Trouver la clé cachée dans la zone, puis toucher la porte.',
+    consumes: false,
+    targetKind: 'door',
     weight: 3,
     plan(ctx) {
       const key = ctx.pickItem('key');
@@ -92,6 +148,11 @@ export const MECHANISM_TYPES: Record<MechanismTypeId, MechanismType> = {
   pedestal_offering: {
     id: 'pedestal_offering',
     label: 'Socle rituel',
+    category: 'sacrifice',
+    summary:
+      'Trouver l\'offrande et la déposer : elle disparaît de l\'inventaire.',
+    consumes: true,
+    targetKind: 'pedestal',
     weight: 3,
     plan(ctx) {
       const offering = ctx.pickItem('offering');
@@ -115,6 +176,11 @@ export const MECHANISM_TYPES: Record<MechanismTypeId, MechanismType> = {
   fragment_set: {
     id: 'fragment_set',
     label: 'Sceau brisé',
+    category: 'collect',
+    summary:
+      'Retrouver les 2 ou 3 fragments dispersés dans la zone.',
+    consumes: true,
+    targetKind: 'gate',
     weight: 1,
     plan(ctx) {
       const frag = ctx.pickItem('fragment');
@@ -141,6 +207,11 @@ export const MECHANISM_TYPES: Record<MechanismTypeId, MechanismType> = {
   break_obstacle: {
     id: 'break_obstacle',
     label: 'Éboulis',
+    category: 'traversal',
+    summary:
+      'Trouver l\'outil, puis briser l\'éboulis qui barre le couloir.',
+    consumes: false,
+    targetKind: 'rubble',
     weight: 3,
     plan(ctx) {
       const tool = ctx.pickItem('tool');
@@ -163,6 +234,11 @@ export const MECHANISM_TYPES: Record<MechanismTypeId, MechanismType> = {
   activate_bridge: {
     id: 'activate_bridge',
     label: 'Passerelle',
+    category: 'traversal',
+    summary:
+      'Trouver le déclencheur : une passerelle se construit au-dessus du vide.',
+    consumes: false,
+    targetKind: 'gap',
     weight: 2,
     plan(ctx) {
       const trigger = ctx.pickItem('trigger');
@@ -186,6 +262,11 @@ export const MECHANISM_TYPES: Record<MechanismTypeId, MechanismType> = {
   light_threshold: {
     id: 'light_threshold',
     label: 'Portail de lumière',
+    category: 'collect',
+    summary:
+      'Récolter assez de cristaux parmi ceux cachés — il y a de la marge.',
+    consumes: false,
+    targetKind: 'gate',
     weight: 1,
     plan(ctx) {
       const total = ctx.rng.int(4, 5);
@@ -214,6 +295,11 @@ export const MECHANISM_TYPES: Record<MechanismTypeId, MechanismType> = {
   cross_biome_tool: {
     id: 'cross_biome_tool',
     label: 'Obstacle ancien',
+    category: 'backtrack',
+    summary:
+      'L\'outil est dans un biome précédent : repartir le chercher par un téléporteur.',
+    consumes: false,
+    targetKind: 'rubble',
     weight: 1,
     plan(ctx) {
       const tool = ctx.pickCrossBiomeItem();

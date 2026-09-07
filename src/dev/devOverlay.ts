@@ -46,7 +46,7 @@ export class DevOverlay {
       <div class="devoverlay-title">MODE DEV</div>
       <div class="devoverlay-body" data-body></div>
       <div class="devoverlay-keys">
-        <b>F1</b> carte complète · <b>F2</b> noclip · <b>F3</b> overlay<br>
+        <b>F1</b> carte complète · <b>F2</b> noclip · <b>F3</b> overlay · <b>F4</b> mécaniques<br>
         en vol : <b>Espace</b> monter · <b>Ctrl</b> descendre · <b>Maj</b> vite
       </div>`;
     container.appendChild(this.root);
@@ -98,19 +98,28 @@ export class DevOverlay {
     const mechs = this.world.mechanisms;
     const unlocked = mechs.filter((m) => m.unlocked).length;
     const taken = this.world.pickups.filter((pp) => pp.taken).length;
-    const here = mechs.find((m) => m.zoneId === zone.id);
+    // A zone may hold several gates now, one per passage out of it.
+    const here = mechs.filter((m) => m.zoneId === zone.id);
+    const gates = zone.gates
+      .map((g) => {
+        const m = mechs.find((mm) => mm.uid === g.mechanismUid);
+        return `${g.side}${m ? ` ${m.type} ${m.unlocked ? '✓' : '✗'}` : ''}`;
+      })
+      .join(' · ');
 
     return [
       ['fps', this.fps.toFixed(0)],
       ['seed', this.world.seed],
       ['secteur', `${tp?.label ?? zone.id} · ${zone.style.name}`],
       ['biome id', `${zone.biomeId} (#${zone.index})`],
+      ['graphe', `rang ${zone.rank}${zone.optional ? ' · branche optionnelle' : ''}`],
+      ['sorties', gates || '— (feuille)'],
       ['tile global', `${tx}, ${tz}`],
       ['tile locale', `${lx}, ${lz}`],
       ['monde', `${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}`],
       ['cap / pitch', `${deg(s.yaw)}° / ${deg(s.pitch)}°`],
       ['noclip', s.noclip ? '<em class="on">ACTIF</em>' : 'off'],
-      ['mécanisme ici', here ? `${here.type} ${here.unlocked ? '✓' : '✗'}` : '—'],
+      ['mécanismes ici', here.length ? here.map((m) => `${m.type} ${m.unlocked ? '✓' : '✗'}`).join(' · ') : '—'],
       ['progression', `${unlocked}/${mechs.length} mécanismes · ${taken}/${this.world.pickups.length} objets`],
       ['draw calls', `${info.render.calls} · ${info.render.triangles.toLocaleString('fr-FR')} tris`],
       ['géométries', `${info.memory.geometries} · ${info.memory.textures} textures`],
