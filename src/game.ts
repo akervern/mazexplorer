@@ -215,6 +215,8 @@ export class Game {
       teleportToWorld: (x, z) => this.devTeleport(x, z),
       setNoclip: (on) => this.player.setNoclip(on),
       setPanelOpen: (open) => {
+        // Both calls record the game's intent, which is what the pause guard
+        // reads — releasing here must not look like the player walking away.
         if (open) this.keyboard.releaseLock();
         else this.keyboard.requestLock();
       },
@@ -252,9 +254,16 @@ export class Game {
     this.updateZone(x);
   }
 
-  /** Whether pointer lock has ever been granted for this game. */
-  get hasHadPointerLock(): boolean {
-    return this.keyboard.everLocked;
+  /**
+   * Whether a lost pointer lock means the player left the game.
+   *
+   * True only when the lock has been granted at least once (before the first
+   * click the browser has granted nothing) *and* the game still wants it held.
+   * Opening a dev panel releases the lock on purpose, so the event it causes
+   * answers false and no pause fires.
+   */
+  get pointerLockLossIsPause(): boolean {
+    return this.keyboard.everLocked && this.keyboard.wantsLock;
   }
 
 
@@ -426,7 +435,13 @@ export class Game {
           else this.interact();
           break;
         case 'pause':
+          // Escape closes whatever is on top before it reaches the game. The
+          // dev map needs this here, not just in its own key handler: the
+          // browser's Esc-exits-pointer-lock cannot be prevented, and the
+          // input source is attached before the dev tools, so it has already
+          // queued the action by the time `DevTools` sees the key.
           if (this.hud.popupOpen) this.hud.closePopup();
+          else if (this.dev?.panelOpen) this.dev.closePanels();
           else {
             this.pause();
             this.hooks.onPause();

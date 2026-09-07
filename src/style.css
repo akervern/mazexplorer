@@ -746,6 +746,9 @@ button.primary:hover {
 
 .devmap-canvas-wrap canvas {
   display: block;
+  /* The game canvas underneath sets `crosshair`; this one is clicked to pick a
+     teleport destination, so it must read as clickable. */
+  cursor: pointer;
 }
 
 .devmap-panel footer {

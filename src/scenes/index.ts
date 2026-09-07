@@ -15,11 +15,11 @@ export type { AppContext, AppEvent, AppMachine, AppStateId } from './appState.js
 export interface App {
   send(event: AppEvent, payload?: unknown): boolean;
   /**
-   * Whether the running game has ever held pointer lock. Before the player's
-   * first click the browser has granted nothing, so a `pointerlockchange` then
-   * is startup noise, not the player leaving.
+   * Whether a lost pointer lock means the player actually left the game — false
+   * before the browser has ever granted it (startup noise, no gesture yet), and
+   * false while a dev panel released it on purpose.
    */
-  hasHadPointerLock(): boolean;
+  pointerLockLossIsPause(): boolean;
 }
 
 export function createApp(container: HTMLElement): App {
@@ -52,6 +52,6 @@ export function createApp(container: HTMLElement): App {
 
   return {
     send: (event, payload) => ctx.machine.send(event, payload),
-    hasHadPointerLock: () => ctx.game?.hasHadPointerLock ?? false,
+    pointerLockLossIsPause: () => ctx.game?.pointerLockLossIsPause ?? false,
   };
 }

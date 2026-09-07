@@ -208,6 +208,15 @@ Rules that keep it honest:
   and a second `resume()` would start a rival rAF loop.
 - Screens report intent as events (`ctx.machine.send(...)`); they hold no
   reference to each other and no game state.
+- **Pointer lock is not a pause signal by itself.** A dev panel releases the
+  lock on purpose, and closing one delivers the pending release *after* the
+  re-request — so `main.ts` settles on the next frame and judges the resulting
+  state, and `Game.pointerLockLossIsPause` requires that the game still wants
+  the lock (`InputManager.wantsLock`).
+- Escape is consumed by `Game.handleActions`, topmost layer first (popup, then
+  dev panel, then pause). It cannot be swallowed in `dev/`: the browser's own
+  Esc-exits-pointer-lock is not preventable, and `InputManager` attaches before
+  the dev tools load, so the action is already queued.
 
 Adding a screen is one state file plus its id and events in `scenes/appState.ts`.
 

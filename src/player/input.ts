@@ -77,7 +77,18 @@ export class KeyboardMouseInput implements InputSource {
   /** True once the browser has granted pointer lock at least once. */
   everLocked = false;
 
+  /**
+   * Whether the game currently *wants* the pointer locked. Losing the lock is
+   * only the player leaving when this is true; when the game released it
+   * itself (a dev panel opening), the resulting event is its own doing.
+   *
+   * Intent rather than a timer: `pointerlockchange` arrives a beat after the
+   * call that caused it, so anything sampling live panel state races it.
+   */
+  wantsLock = false;
+
   requestLock = (): void => {
+    this.wantsLock = true;
     if (this.locked) return;
     // Chrome rejects this outside a user gesture, and rejects a second request
     // made too soon after an exit. Neither is an error worth surfacing.
@@ -92,6 +103,7 @@ export class KeyboardMouseInput implements InputSource {
   };
 
   releaseLock(): void {
+    this.wantsLock = false;
     if (this.locked) document.exitPointerLock?.();
   }
 

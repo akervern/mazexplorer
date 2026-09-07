@@ -64,14 +64,10 @@ export class DevTools {
         e.preventDefault();
         this.overlay.toggle();
         break;
-      case 'Escape':
-        // Escape pauses the game; swallow it while the map owns the screen.
-        if (this.map.isOpen) {
-          e.preventDefault();
-          e.stopPropagation();
-          this.map.hide();
-        }
-        break;
+      // Escape is handled by `Game.handleActions` instead: the browser's own
+      // "Esc exits pointer lock" cannot be prevented, and `InputManager` is
+      // attached before these tools load, so it has already queued the action.
+      // Closing from here too would toggle the map twice on one key press.
     }
   };
 
@@ -90,6 +86,11 @@ export class DevTools {
   /** True while a dev panel is grabbing input; the game pauses movement. */
   get panelOpen(): boolean {
     return this.map.isOpen;
+  }
+
+  /** Close any open panel, re-grabbing pointer lock through `onClose`. */
+  closePanels(): void {
+    this.map.hide();
   }
 
   update(dt: number): void {
